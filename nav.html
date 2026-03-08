@@ -936,7 +936,7 @@
         card.appendChild(label);
         const btn = document.createElement('button');
         btn.className = 'opp-btn';
-        btn.textContent = opp.type === 'red' ? 'Walk' : 'Capture';
+        btn.textContent = 'Capture';
         btn.addEventListener('click', (e) => { e.stopPropagation(); handleOppTap(opp); });
         card.appendChild(btn);
         oppStrip.appendChild(card);
@@ -972,7 +972,7 @@
           const marker = L.marker(opp.borderPt, {
             icon: L.divIcon({
               className: '',
-              html: `<div class="walk-marker">🚶 ${dist}m</div>`,
+              html: `<div class="walk-marker">🛑 ${dist}m</div>`,
               iconSize: [60, 20], iconAnchor: [30, 10],
             }),
             zIndexOffset: 800,
