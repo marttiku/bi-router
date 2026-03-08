@@ -961,12 +961,12 @@
       renderOppCards();
 
       if (toValidate.length) {
-        console.log(`[opp] Scan at idx ${snapIdx}: ${redOpps.length} red, ${validatedYellows.length} validated yellow, ${toValidate.length} to validate`);
+        console.log(`[opp] Scan at idx ${origSnapIdx}: ${redOpps.length} red, ${validatedYellows.length} validated yellow, ${toValidate.length} to validate`);
       }
 
       for (const opp of toValidate) {
         oppRouteCache.set(opp.key, { status: 'pending' });
-        validateYellowOpp(opp, snapIdx);
+        validateYellowOpp(opp, origSnapIdx);
       }
     }
 
