@@ -397,6 +397,7 @@ function updateButtons() {
   document.getElementById('btn-delete-mode').disabled = !hasWp;
   document.getElementById('btn-return-start').disabled = waypoints.length < 2;
   document.getElementById('btn-export').disabled = routeCoordinates.length === 0;
+  document.getElementById('btn-navigate').disabled = routeCoordinates.length < 2;
   document.getElementById('btn-google').disabled = waypoints.length < 2;
   document.getElementById('btn-send-device').disabled = routeCoordinates.length < 2;
 
@@ -701,6 +702,10 @@ document.getElementById('btn-clear').addEventListener('click', clearAllWaypoints
 document.getElementById('btn-return-start').addEventListener('click', returnToStart);
 document.getElementById('btn-start-here').addEventListener('click', startFromCurrentLocation);
 document.getElementById('btn-export').addEventListener('click', exportGPX);
+document.getElementById('btn-navigate').addEventListener('click', () => {
+  if (routeCoordinates.length < 2) return;
+  window.open(buildNavUrl(routeCoordinates), '_blank');
+});
 document.getElementById('btn-google').addEventListener('click', openInGoogleMaps);
 document.getElementById('btn-send-device').addEventListener('click', sendToDevice);
 

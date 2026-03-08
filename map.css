@@ -329,6 +329,16 @@ body {
   background: #e04400;
 }
 
+.btn-navigate {
+  background: #00897b;
+  color: #fff;
+  flex: 2;
+}
+
+.btn-navigate:hover:not(:disabled) {
+  background: #00695c;
+}
+
 .btn-google {
   background: #1a73e8;
   color: #fff;
