@@ -313,6 +313,24 @@
       text-align: right;
       font-variant-numeric: tabular-nums;
     }
+
+    #dev-play-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: none;
+      background: #4fc3f7;
+      color: #000;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      padding: 0;
+      line-height: 1;
+    }
+    #dev-play-btn:active { background: #039be5; }
   </style>
 </head>
 <body>
@@ -377,6 +395,7 @@
   <div id="opp-strip"></div>
 
   <div id="dev-slider-wrap" style="display:none">
+    <button id="dev-play-btn" title="Play 10x speed">▶</button>
     <input type="range" id="dev-slider" min="0" max="0" value="0">
     <span id="dev-pos-label">0%</span>
   </div>
@@ -1153,6 +1172,57 @@
 
       devSlider.addEventListener('input', () => {
         simulateAt(parseInt(devSlider.value));
+      });
+
+      const playBtn = document.getElementById('dev-play-btn');
+      let playInterval = null;
+
+      function stopPlayback() {
+        clearInterval(playInterval);
+        playInterval = null;
+        playBtn.textContent = '▶';
+      }
+
+      function startPlayback() {
+        const TICK_MS = 200;
+        const segLengths = [];
+        for (let i = 1; i < route.length; i++) {
+          segLengths.push(haversine(route[i - 1], route[i]));
+        }
+        const SPEED_MPS = 50;
+        let accumDist = 0;
+
+        playBtn.textContent = '⏸';
+        playInterval = setInterval(() => {
+          accumDist += SPEED_MPS * (TICK_MS / 1000);
+          let idx = parseInt(devSlider.value);
+          while (idx < route.length - 1 && accumDist > 0) {
+            const seg = segLengths[idx] || 0;
+            if (accumDist >= seg) {
+              accumDist -= seg;
+              idx++;
+            } else {
+              break;
+            }
+          }
+          if (idx >= route.length - 1) {
+            devSlider.value = route.length - 1;
+            simulateAt(route.length - 1);
+            stopPlayback();
+            return;
+          }
+          devSlider.value = idx;
+          simulateAt(idx);
+          accumDist = 0;
+        }, TICK_MS);
+      }
+
+      playBtn.addEventListener('click', () => {
+        if (playInterval) {
+          stopPlayback();
+        } else {
+          startPlayback();
+        }
       });
 
       gpsDot.on('drag', (e) => {
