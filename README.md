@@ -32,12 +32,27 @@ The navigation page provides:
 
 ## Installation
 
-1. Clone this repository
-2. Open `chrome://extensions/` in Chrome
-3. Enable **Developer mode**
-4. Click **Load unpacked** and select the project folder
+### From source (this repo)
 
-The extension requires you to be logged into Strava for authenticated heatmap tiles (higher zoom levels). Public tiles work without login at lower zoom.
+1. Download or clone the repository:
+   ```
+   git clone https://github.com/marttiku/bi-router.git
+   ```
+2. Open **chrome://extensions/** in Chrome (or any Chromium-based browser)
+3. Enable **Developer mode** (toggle in the top-right corner)
+4. Click **Load unpacked**
+5. Select the `bi-router` folder you just cloned
+6. The extension icon (blue bike pin) appears in your toolbar — click it to open the route planner
+
+To update later, `git pull` in the folder and click the reload button on the extensions page.
+
+### Strava authentication
+
+The extension works without a Strava account (public heatmap tiles at lower zoom). For full-resolution heatmap tiles:
+
+1. Go to [strava.com](https://www.strava.com) and log in
+2. Visit the [global heatmap](https://www.strava.com/maps/global-heatmap) at least once
+3. Reload the route planner — it will pick up your session automatically
 
 ## Project Structure
 
