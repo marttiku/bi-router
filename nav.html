@@ -639,6 +639,16 @@
       const west = tile2lon(x, z), east = tile2lon(x + 1, z);
       return [Math.max(south, Math.min(north, pt[0])), Math.max(west, Math.min(east, pt[1]))];
     }
+    function pointInsideTile(key, z, refPt, insetM) {
+      const [x, y] = key.split('-').map(Number);
+      const north = tile2lat(y, z), south = tile2lat(y + 1, z);
+      const west = tile2lon(x, z), east = tile2lon(x + 1, z);
+      const dlat = insetM / 111320;
+      const dlng = insetM / (111320 * Math.cos(toRad((north + south) / 2)));
+      const lat = Math.max(south + dlat, Math.min(north - dlat, refPt[0]));
+      const lng = Math.max(west + dlng, Math.min(east - dlng, refPt[1]));
+      return [lat, lng];
+    }
 
     /* ── SQ stats state ───────────────────────── */
     const sqStatsEl = document.getElementById('sq-stats');
@@ -828,13 +838,15 @@
     function scanOpportunities(snapIdx) {
       if (!sqSet14 && !sqSet17) return;
       lastScanSnapIdx = snapIdx;
+      const scanStart = (detourEndIdx > snapIdx) ? detourEndIdx : snapIdx;
+      if (scanStart >= route.length - 1) return;
       const redOpps = [];
       const yellowCandidates = [];
 
       function scanZoom(z, rawSet, capturedSet, label) {
         const seen = new Set();
         let acc = 0;
-        for (let i = snapIdx; i < route.length - 1 && acc < 1500; i++) {
+        for (let i = scanStart; i < route.length - 1 && acc < 1500; i++) {
           acc += haversine(route[i], route[i + 1]);
           const tx = lon2tile(route[i][1], z);
           const ty = lat2tile(route[i][0], z);
@@ -860,7 +872,7 @@
                   routeIdx: closestRouteIdx, tileLabel: label });
               } else if (minRouteDist < 800) {
                 const cluster = findAdjacentUnvisited(key, z, rawSet, capturedSet, 3);
-                const viaPoints = sortNearestNeighbor(route[closestRouteIdx], cluster.map(k => tileCenter(k, z)));
+                const viaPoints = sortNearestNeighbor(route[closestRouteIdx], cluster.map(k => pointInsideTile(k, z, route[closestRouteIdx], 5)));
                 const rejoinIdx = findRejoinIdx(closestRouteIdx, Math.max(300, minRouteDist * 2));
                 yellowCandidates.push({ type: 'yellow', key, z, keys: cluster, tiles: cluster.length,
                   dist: Math.round(2 * minRouteDist * 1.4),
@@ -912,6 +924,7 @@
     }
 
     let lastScanSnapIdx = 0;
+    let detourEndIdx = -1;
 
     async function validateYellowOpp(opp, snapIdx) {
       const from = route[opp.routeIdx];
@@ -1070,6 +1083,7 @@
           route.splice(snap.index, 30, ...detour.coords);
           routeLine.setLatLngs(route);
           totalDistVar = routeLength(route);
+          detourEndIdx = snap.index + detour.coords.length;
         } else {
           console.log(`[opp] Live detour also failed`);
           if (card) card.querySelector('.opp-btn').textContent = '✗';
@@ -1080,6 +1094,7 @@
         route.splice(snap.index, removeCount, ...cached.route.coords);
         routeLine.setLatLngs(route);
         totalDistVar = routeLength(route);
+        detourEndIdx = snap.index + cached.route.coords.length;
       }
 
       if (opp.keys) opp.keys.forEach(k => dismissedOppKeys.add(k));
