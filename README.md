@@ -1,10 +1,10 @@
-# Bi-Router — Strava Heatmap Route Planner
+# Bi-Router — Heatmap Route Planner
 
-A Chrome extension for planning cycling and walking routes using Strava's global heatmap as an overlay. See where people actually ride and run, then plan your own route with turn-by-turn mobile navigation.
+A Chrome extension for planning cycling and walking routes using activity heatmap overlays. See where people actually ride and run, then plan your own route with turn-by-turn mobile navigation.
 
 ## Features
 
-- **Strava heatmap overlay** — shows popular cycling, running, water, and winter sport routes with configurable color scheme and opacity
+- **Activity heatmap overlay** — shows popular cycling, running, water, and winter sport routes with configurable color scheme and opacity
 - **Click-to-route planning** — click the map to add waypoints; routes are calculated via BRouter (with OSRM fallback)
 - **Tallinn bicycle roads layer** — toggle official bike infrastructure data from Tallinn city GIS
 - **Squadrats integration** — connects with [Squadrats](https://squadrats.com) to show your explored squares on the map
@@ -15,10 +15,9 @@ A Chrome extension for planning cycling and walking routes using Strava's global
 
 ## How It Works
 
-1. Visit [Strava's global heatmap](https://www.strava.com/maps/global-heatmap) while logged in
-2. Click the **Plan Route** button injected by the extension (or click the extension icon anytime)
-3. Click the map to add waypoints — the route calculates automatically
-4. Export as GPX, open in Google Maps, or tap **Send to Phone** and scan the QR code
+1. Click the extension icon to open the route planner
+2. Click the map to add waypoints — the route calculates automatically
+3. Export as GPX, open in Google Maps, or tap **Send to Phone** and scan the QR code
 
 ## Mobile Navigation
 
@@ -36,7 +35,7 @@ The navigation page provides:
 ### From the Chrome Web Store
 
 <!-- TODO: replace with actual link after publishing -->
-Install from the [Chrome Web Store](https://chrome.google.com/webstore) — search for **Strava Heatmap Route Planner**.
+Install from the [Chrome Web Store](https://chrome.google.com/webstore) — search for **Bi-Router**.
 
 ### From source
 
@@ -51,20 +50,12 @@ Install from the [Chrome Web Store](https://chrome.google.com/webstore) — sear
 
 To update later, `git pull` in the folder and click the reload button on the extensions page.
 
-### Strava authentication
-
-The extension works without a Strava account (public heatmap tiles at lower zoom). For full-resolution heatmap tiles:
-
-1. Go to [strava.com](https://www.strava.com) and log in
-2. Visit the [global heatmap](https://www.strava.com/maps/global-heatmap) at least once
-3. Reload the route planner — it will pick up your session automatically
-
 ## Project Structure
 
 ```
 ├── manifest.json          Chrome extension manifest (MV3)
 ├── background.js          Service worker: tab management, tile auth
-├── content.js             Injects "Plan Route" button on Strava heatmap
+├── content.js             Injects "Plan Route" button on heatmap pages
 ├── content.css            Styles for injected button
 ├── squadrats-connect.js   Captures Squadrats UID for map integration
 ├── map.html               Route planner UI
@@ -89,9 +80,9 @@ The extension works without a Strava account (public heatmap tiles at lower zoom
 
 ## Permissions
 
-- **Cookies** — reads Strava session cookies to authenticate heatmap tile requests
+- **Cookies** — reads session cookies to authenticate heatmap tile requests
 - **DeclarativeNetRequest** — attaches auth headers to heatmap tile requests
-- **Host permissions** — `strava.com`, `gis.tallinn.ee`, `squadrats.com`
+- **Host permissions** — `gis.tallinn.ee`, `squadrats.com`
 
 ## License
 
