@@ -337,6 +337,8 @@ function updateButtons() {
   document.getElementById('btn-clear').disabled = waypoints.length === 0;
   document.getElementById('btn-return-start').disabled = waypoints.length < 2;
   document.getElementById('btn-export').disabled = routeCoordinates.length === 0;
+  document.getElementById('btn-google').disabled = waypoints.length < 2;
+  document.getElementById('btn-send-device').disabled = waypoints.length < 2;
 }
 
 // ── GPX Export ───────────────────────────────────────────────────
@@ -382,6 +384,51 @@ ${trackpoints}
   showToast('GPX exported! Import it into Google My Maps.', 'success');
 }
 
+// ── Google Maps Navigation ───────────────────────────────────────
+function openInGoogleMaps() {
+  const url = buildGoogleMapsUrl();
+  if (url) window.open(url, '_blank');
+}
+
+// ── Send to Phone (QR Code) ──────────────────────────────────────
+function buildGoogleMapsUrl() {
+  if (waypoints.length < 2) return null;
+
+  const points = waypoints.map(w => {
+    const ll = w.marker.getLatLng();
+    return `${ll.lat},${ll.lng}`;
+  });
+
+  const origin = points[0];
+  const destination = points[points.length - 1];
+  const intermediate = points.slice(1, -1).join('|');
+
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=bicycling`;
+  if (intermediate) {
+    url += `&waypoints=${intermediate}`;
+  }
+  return url;
+}
+
+function sendToDevice() {
+  const mapsUrl = buildGoogleMapsUrl();
+  if (!mapsUrl) return;
+
+  const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(mapsUrl)}`;
+  document.getElementById('qr-code').src = qrApiUrl;
+  document.getElementById('qr-modal').hidden = false;
+}
+
+document.getElementById('qr-close').addEventListener('click', () => {
+  document.getElementById('qr-modal').hidden = true;
+});
+
+document.getElementById('qr-modal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) {
+    document.getElementById('qr-modal').hidden = true;
+  }
+});
+
 // ── Toast Notifications ──────────────────────────────────────────
 function showToast(message, type = 'info', duration = 3500) {
   const container = document.getElementById('toast-container');
@@ -408,6 +455,8 @@ document.getElementById('btn-clear').addEventListener('click', clearAllWaypoints
 document.getElementById('btn-return-start').addEventListener('click', returnToStart);
 document.getElementById('btn-start-here').addEventListener('click', startFromCurrentLocation);
 document.getElementById('btn-export').addEventListener('click', exportGPX);
+document.getElementById('btn-google').addEventListener('click', openInGoogleMaps);
+document.getElementById('btn-send-device').addEventListener('click', sendToDevice);
 
 // ── Map Click ────────────────────────────────────────────────────
 map.on('click', (e) => addWaypoint(e.latlng));

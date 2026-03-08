@@ -75,6 +75,8 @@
       <button id="btn-undo" class="btn btn-secondary" disabled>Undo</button>
       <button id="btn-clear" class="btn btn-secondary" disabled>Clear All</button>
       <button id="btn-export" class="btn btn-primary" disabled>Export GPX</button>
+      <button id="btn-google" class="btn btn-google" disabled>Open in Google Maps</button>
+      <button id="btn-send-device" class="btn btn-device" disabled>Send to Phone</button>
     </section>
 
     <footer class="sidebar-footer">
@@ -84,6 +86,15 @@
   </aside>
 
   <div id="map"></div>
+
+  <div id="qr-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <h3>Scan with your phone</h3>
+      <p class="modal-subtitle">Opens cycling directions in Google Maps</p>
+      <img id="qr-code" alt="QR Code" width="250" height="250">
+      <button id="qr-close" class="btn btn-secondary">Close</button>
+    </div>
+  </div>
 
   <div id="toast-container"></div>
 

@@ -261,6 +261,27 @@ body {
   background: #e04400;
 }
 
+.btn-google {
+  background: #1a73e8;
+  color: #fff;
+  flex: 2;
+}
+
+.btn-google:hover:not(:disabled) {
+  background: #1557b0;
+}
+
+.btn-device {
+  background: #2a2a4a;
+  color: #b0b0cc;
+  flex: 2;
+  border: 1px solid #3a3a5a;
+}
+
+.btn-device:hover:not(:disabled) {
+  background: #3a3a5a;
+}
+
 /* ── Footer ──────────────────────────────────── */
 
 .sidebar-footer {
@@ -372,6 +393,54 @@ body {
 
 .toast.error {
   background: #c62828;
+}
+
+/* ── QR Modal ────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal h3 {
+  color: #fff;
+  font-size: 16px;
+  margin: 0;
+}
+
+.modal-subtitle {
+  color: #8888aa;
+  font-size: 13px;
+  margin: 0;
+}
+
+.modal img {
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+}
+
+.modal .btn {
+  margin-top: 4px;
+  min-width: 120px;
 }
 
 @keyframes toast-in {
