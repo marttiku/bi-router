@@ -250,7 +250,7 @@
     .leaflet-tile-pane { filter: brightness(0.85) saturate(0.8); }
 
     .leaflet-map-pane {
-      transition: transform 0.3s ease-out;
+      will-change: transform;
     }
 
     #capture-toast {
@@ -1311,15 +1311,46 @@
       }
     };
 
+    const MAX_DEG_PER_SEC = 90;
+    let _rotTarget = 0;
+    let _rotAnimFrame = null;
+    let _rotLastTime = 0;
+
     function rotateMap(deg) {
-      _mapRotation = deg;
+      _rotTarget = deg;
+      if (!_rotAnimFrame) {
+        _rotLastTime = performance.now();
+        _rotAnimFrame = requestAnimationFrame(animateRotation);
+      }
+    }
+
+    function animateRotation(now) {
+      const dt = (now - _rotLastTime) / 1000;
+      _rotLastTime = now;
+
+      let diff = _rotTarget - _mapRotation;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+
+      const maxStep = MAX_DEG_PER_SEC * dt;
+      if (Math.abs(diff) <= maxStep) {
+        _mapRotation = _rotTarget;
+        _rotAnimFrame = null;
+      } else {
+        _mapRotation += Math.sign(diff) * maxStep;
+        _rotAnimFrame = requestAnimationFrame(animateRotation);
+      }
+
+      _mapRotation = ((_mapRotation % 360) + 360) % 360;
+
       const pos = L.DomUtil.getPosition(_mapPane) || new L.Point(0, 0);
       L.DomUtil.setTransform(_mapPane, pos);
 
+      const r = _mapRotation;
       document.querySelectorAll('.leaflet-marker-icon').forEach(el => {
         el.style.transformOrigin = 'center center';
         const existing = el.style.transform.replace(/\s*rotate\([^)]*\)/g, '');
-        el.style.transform = deg !== 0 ? `${existing} rotate(${deg}deg)` : existing;
+        el.style.transform = r !== 0 ? `${existing} rotate(${r}deg)` : existing;
       });
     }
 
