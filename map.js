@@ -485,7 +485,7 @@ function buildGoogleMapsUrl() {
     });
   }
 
-  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=bicycling`;
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=walking`;
   if (intermediatePoints.length > 0) {
     url += `&waypoints=${intermediatePoints.join('|')}`;
   }
