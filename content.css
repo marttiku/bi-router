@@ -1,6 +1,6 @@
 #strava-route-planner-btn {
   position: fixed;
-  top: 16px;
+  bottom: 32px;
   right: 16px;
   z-index: 99999;
   display: flex;
