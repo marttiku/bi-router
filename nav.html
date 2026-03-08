@@ -234,9 +234,63 @@
     .leaflet-map-pane {
       transition: transform 0.3s ease-out;
     }
+
+    .dev-banner {
+      background: #ff5722;
+      color: #fff;
+      text-align: center;
+      padding: 3px 0;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      flex-shrink: 0;
+    }
+
+    #dev-slider-wrap {
+      position: absolute;
+      bottom: 24px;
+      left: 88px;
+      right: 72px;
+      z-index: 1000;
+      background: rgba(26, 26, 46, 0.92);
+      border-radius: 20px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    }
+
+    #dev-slider {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 4px;
+      background: #2a2a4a;
+      border-radius: 2px;
+      outline: none;
+    }
+    #dev-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #4fc3f7;
+      cursor: pointer;
+      border: 2px solid #fff;
+    }
+
+    #dev-pos-label {
+      font-size: 11px;
+      color: #8888aa;
+      min-width: 32px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
+
+  <div class="dev-banner" id="dev-banner" style="display:none">DEV MODE — Drag marker or use slider</div>
 
   <div id="stats-bar">
     <div class="stats-row">
@@ -290,6 +344,11 @@
   <div id="map"></div>
 
   <div id="opp-strip"></div>
+
+  <div id="dev-slider-wrap" style="display:none">
+    <input type="range" id="dev-slider" min="0" max="0" value="0">
+    <span id="dev-pos-label">0%</span>
+  </div>
 
   <div id="controls">
     <button class="map-btn active" id="btn-center" title="Re-center">⊕</button>
@@ -380,6 +439,8 @@
       if (k) hashParams[k] = decodeURIComponent(v || '');
     }
 
+    const devMode = hashParams.dev === '1';
+
     let route;
     try {
       route = decodePolyline(decodeURIComponent(encodedPoly));
@@ -424,7 +485,7 @@
       icon: L.divIcon({ className: '', html: '<div class="end-flag">🏁</div>', iconSize: [24, 24], iconAnchor: [12, 12] }),
     }).addTo(map);
 
-    const gpsDot = L.marker([0, 0], {
+    let gpsDot = L.marker([0, 0], {
       icon: L.divIcon({
         className: '',
         html: '<div class="gps-pulse"></div><div class="gps-dot"></div>',
@@ -811,14 +872,16 @@
     }
 
     /* ── GPS Tracking ──────────────────────────── */
-    if (!navigator.geolocation) {
-      showError('GPS Unavailable', 'Your browser does not support geolocation.');
-    } else {
-      navigator.geolocation.watchPosition(onPosition, onGpsError, {
-        enableHighAccuracy: true,
-        maximumAge: 3000,
-        timeout: 15000,
-      });
+    if (!devMode) {
+      if (!navigator.geolocation) {
+        showError('GPS Unavailable', 'Your browser does not support geolocation.');
+      } else {
+        navigator.geolocation.watchPosition(onPosition, onGpsError, {
+          enableHighAccuracy: true,
+          maximumAge: 3000,
+          timeout: 15000,
+        });
+      }
     }
 
     function onPosition(pos) {
@@ -1020,6 +1083,71 @@
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') requestWakeLock();
     });
+
+    /* ── Dev Mode ──────────────────────────────── */
+    if (devMode) {
+      document.getElementById('dev-banner').style.display = '';
+      const devWrap = document.getElementById('dev-slider-wrap');
+      devWrap.style.display = 'flex';
+      const devSlider = document.getElementById('dev-slider');
+      devSlider.max = route.length - 1;
+      const devLabel = document.getElementById('dev-pos-label');
+
+      startTime = Date.now();
+
+      gpsDot = L.marker(route[0], {
+        icon: L.divIcon({
+          className: '',
+          html: '<div class="gps-pulse"></div><div class="gps-dot"></div>',
+          iconSize: [18, 18],
+          iconAnchor: [9, 9],
+        }),
+        draggable: true,
+        zIndexOffset: 1000,
+      }).addTo(map);
+
+      function simulateAt(idx) {
+        idx = Math.max(0, Math.min(route.length - 1, idx));
+        const pct = Math.round(idx / (route.length - 1) * 100);
+        devLabel.textContent = `${pct}%`;
+        lastScanTime = 0;
+        onPosition({
+          coords: { latitude: route[idx][0], longitude: route[idx][1], speed: 5 }
+        });
+      }
+
+      devSlider.addEventListener('input', () => {
+        simulateAt(parseInt(devSlider.value));
+      });
+
+      gpsDot.on('drag', (e) => {
+        const snap = snapToRoute([e.latlng.lat, e.latlng.lng], route);
+        devSlider.value = snap.index;
+        devLabel.textContent = `${Math.round(snap.index / (route.length - 1) * 100)}%`;
+      });
+
+      gpsDot.on('dragend', (e) => {
+        const snap = snapToRoute([e.latlng.lat, e.latlng.lng], route);
+        devSlider.value = snap.index;
+        simulateAt(snap.index);
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        const step = e.shiftKey ? 10 : 1;
+        if (e.key === 'ArrowRight') {
+          devSlider.value = Math.min(route.length - 1, parseInt(devSlider.value) + step);
+          simulateAt(parseInt(devSlider.value));
+          e.preventDefault();
+        } else if (e.key === 'ArrowLeft') {
+          devSlider.value = Math.max(0, parseInt(devSlider.value) - step);
+          simulateAt(parseInt(devSlider.value));
+          e.preventDefault();
+        }
+      });
+
+      simulateAt(0);
+    }
   </script>
 </body>
 </html>
