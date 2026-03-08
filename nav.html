@@ -1169,22 +1169,25 @@
       }
       const origSnap = snapToRoute(curPt, originalRoute);
       let departIdx;
+      let routeFrom;
       if (activeDetour && bestDetourDist <= origSnap.distance) {
         departIdx = activeDetour.rejoinIdx;
+        routeFrom = activeDetour.coords[activeDetour.coords.length - 1];
       } else {
         activeDetour = null;
         departIdx = origSnap.index;
+        routeFrom = curPt;
         for (const d of detours) {
           if (departIdx >= d.departIdx && departIdx < d.rejoinIdx) {
-            activeDetour = d;
             departIdx = d.rejoinIdx;
+            routeFrom = d.coords[d.coords.length - 1];
           }
         }
       }
       const rejoinIdx = Math.max(cached.rejoinIdx, departIdx + 1);
       const to = originalRoute[Math.min(rejoinIdx, originalRoute.length - 1)];
       const viaPoints = opp.viaPoints || [];
-      const detourResult = await fetchDetourRoute([curPt, ...viaPoints, to]);
+      const detourResult = await fetchDetourRoute([routeFrom, ...viaPoints, to]);
 
       if (!detourResult) {
         console.log(`[opp] Detour from current position failed`);
@@ -1194,20 +1197,7 @@
       }
 
       console.log(`[opp] Adding detour: depart=${departIdx}, rejoin=${rejoinIdx}, coords=${detourResult.coords.length} pts`);
-      if (activeDetour) {
-        const snapInDetour = snapToRoute(curPt, activeDetour.coords);
-        const savedCoords = activeDetour.coords;
-        activeDetour.coords = activeDetour.coords.slice(0, snapInDetour.index + 1);
-        console.log(`[opp] Truncated active detour [${activeDetour.departIdx},${activeDetour.rejoinIdx}] at coord ${snapInDetour.index}`);
-        const added = addDetour(departIdx, rejoinIdx, detourResult.coords);
-        if (!added) {
-          activeDetour.coords = savedCoords;
-          console.log(`[opp] Restored active detour coords (addDetour rejected)`);
-          buildEffectiveRoute();
-        }
-      } else {
-        addDetour(departIdx, rejoinIdx, detourResult.coords);
-      }
+      addDetour(departIdx, rejoinIdx, detourResult.coords);
 
       if (opp.keys) opp.keys.forEach(k => dismissedOppKeys.add(k));
       else dismissedOppKeys.add(opp.key);
@@ -1784,7 +1774,7 @@
       assert(isInDetourRange(55), 'idx 55 in range');
       assert(!isInDetourRange(65), 'idx 65 not in range');
 
-      /* ── Test 6: capture B while inside detour A (the critical bug test) ── */
+      /* ── Test 6: capture B while inside detour A (no truncation) ── */
       console.log('Test 6: capture B while inside detour A');
       setup();
       const dAcoords = [];
@@ -1817,17 +1807,13 @@
       assert(departIdx === 30, `departIdx pushed to ${departIdx}, should be 30`);
 
       const rejoinIdx = 50;
-      if (activeDetour) {
-        const snapIn = snapToRoute(curPt, activeDetour.coords);
-        activeDetour.coords = activeDetour.coords.slice(0, snapIn.index + 1);
-      }
       const dBcoords = [[59.6, 24.6], [59.61, 24.61], [59.62, 24.62]];
       addDetour(departIdx, rejoinIdx, dBcoords);
 
       assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
-      assert(hasCoord(59.5, 24.5), 'detour A first coord still present after B added');
-      const truncA = detours.find(d => d.departIdx === 20);
-      assert(truncA && truncA.coords.length === 6, `truncated A has ${truncA?.coords.length} coords, expected 6`);
+      assert(hasCoord(59.5, 24.5), 'detour A first coord still present');
+      const intactA = detours.find(d => d.departIdx === 20);
+      assert(intactA && intactA.coords.length === 10, `A has ${intactA?.coords.length} coords, expected 10 (not truncated)`);
       assert(hasCoord(59.6, 24.6), 'detour B coords present');
       assert(originalRoute.length === 100, 'originalRoute unchanged');
 
@@ -1942,8 +1928,8 @@
       assert(hasCoord(59.9, 24.9), 'detour B present');
       assert(originalRoute.length === 100, 'originalRoute unchanged');
 
-      /* ── Test 14: truncation + rejection should restore coords ── */
-      console.log('Test 14: truncation + addDetour rejection restores coords');
+      /* ── Test 14: capture while inside A, with B ahead — overlap rejection preserves A ── */
+      console.log('Test 14: capture while inside A, B ahead, overlap rejection');
       setup();
       const dA14 = [];
       for (let i = 0; i < 10; i++) dA14.push([59.5 + i * 0.001, 24.5 + i * 0.001]);
@@ -1973,20 +1959,42 @@
       assert(dept14 === 30, `departIdx=${dept14} should be 30`);
 
       const rejoin14 = 40;
-      if (active14) {
-        const snapIn14 = snapToRoute(cur14, active14.coords);
-        const saved14 = active14.coords;
-        active14.coords = active14.coords.slice(0, snapIn14.index + 1);
-        const added14 = addDetour(dept14, rejoin14, [[59.9, 24.9]]);
-        if (!added14) {
-          active14.coords = saved14;
-          buildEffectiveRoute();
-        }
-      }
-      assert(detours.length === 2, `detours.length=${detours.length} should still be 2`);
+      addDetour(dept14, rejoin14, [[59.9, 24.9]]);
+      assert(detours.length === 2, `detours.length=${detours.length} should still be 2 (overlap rejected)`);
       const a14 = detours.find(d => d.departIdx === 20);
-      assert(a14 && a14.coords.length === 10, `detour A coords=${a14?.coords.length} should be 10 (restored)`);
+      assert(a14 && a14.coords.length === 10, `detour A coords=${a14?.coords.length} should be 10 (intact)`);
       assert(hasCoord(59.7, 24.7), 'existing B still present');
+
+      /* ── Test 15: chain two captures — both detours remain fully intact ── */
+      console.log('Test 15: chain captures inside A, B chains after A');
+      setup();
+      const dA15 = [];
+      for (let i = 0; i < 20; i++) dA15.push([59.5 + i * 0.001, 24.5 + i * 0.001]);
+      addDetour(50, 60, dA15);
+      assert(detours.length === 1, 'detour A at [50,60] added with 20 coords');
+
+      const cur15 = dA15[3];
+      let act15 = null;
+      let bd15 = Infinity;
+      for (const d of detours) {
+        const s = snapToRoute(cur15, d.coords);
+        if (s.distance < bd15) { bd15 = s.distance; act15 = d; }
+      }
+      const os15 = snapToRoute(cur15, originalRoute);
+      let dp15;
+      if (act15 && bd15 <= os15.distance) {
+        dp15 = act15.rejoinIdx;
+      } else {
+        act15 = null; dp15 = os15.index;
+      }
+      assert(dp15 === 60, `departIdx=${dp15} should be 60 (chains after A)`);
+      const dB15 = [[59.8, 24.8], [59.81, 24.81], [59.82, 24.82]];
+      addDetour(dp15, 75, dB15);
+      assert(detours.length === 2, 'both detours present');
+      const aAfter = detours.find(d => d.departIdx === 50);
+      assert(aAfter && aAfter.coords.length === 20, `A has ${aAfter?.coords.length} coords (all 20, not truncated)`);
+      assert(hasCoord(59.5, 24.5), 'A first coord still present');
+      assert(hasCoord(59.8, 24.8), 'B coords present');
 
       /* ── Restore ── */
       setup();
