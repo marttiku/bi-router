@@ -331,6 +331,21 @@
       line-height: 1;
     }
     #dev-play-btn:active { background: #039be5; }
+
+    #dev-speed-btn {
+      border: none;
+      background: #2a2a4a;
+      color: #4fc3f7;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 6px;
+      border-radius: 8px;
+      cursor: pointer;
+      flex-shrink: 0;
+      min-width: 32px;
+      text-align: center;
+    }
+    #dev-speed-btn:active { background: #3a3a5a; }
   </style>
 </head>
 <body>
@@ -395,7 +410,8 @@
   <div id="opp-strip"></div>
 
   <div id="dev-slider-wrap" style="display:none">
-    <button id="dev-play-btn" title="Play 10x speed">▶</button>
+    <button id="dev-play-btn" title="Play">▶</button>
+    <button id="dev-speed-btn" title="Cycle speed">2x</button>
     <input type="range" id="dev-slider" min="0" max="0" value="0">
     <span id="dev-pos-label">0%</span>
   </div>
@@ -1175,7 +1191,19 @@
       });
 
       const playBtn = document.getElementById('dev-play-btn');
+      const speedBtn = document.getElementById('dev-speed-btn');
+      const SPEED_STEPS = [1, 2, 5, 10, 20];
+      const BASE_MPS = 5;
+      let speedIdx = 1;
       let playInterval = null;
+
+      speedBtn.textContent = `${SPEED_STEPS[speedIdx]}x`;
+
+      speedBtn.addEventListener('click', () => {
+        speedIdx = (speedIdx + 1) % SPEED_STEPS.length;
+        speedBtn.textContent = `${SPEED_STEPS[speedIdx]}x`;
+        if (playInterval) { stopPlayback(); startPlayback(); }
+      });
 
       function stopPlayback() {
         clearInterval(playInterval);
@@ -1189,12 +1217,12 @@
         for (let i = 1; i < route.length; i++) {
           segLengths.push(haversine(route[i - 1], route[i]));
         }
-        const SPEED_MPS = 50;
         let accumDist = 0;
 
         playBtn.textContent = '⏸';
         playInterval = setInterval(() => {
-          accumDist += SPEED_MPS * (TICK_MS / 1000);
+          const mps = BASE_MPS * SPEED_STEPS[speedIdx];
+          accumDist += mps * (TICK_MS / 1000);
           let idx = parseInt(devSlider.value);
           while (idx < route.length - 1 && accumDist > 0) {
             const seg = segLengths[idx] || 0;
