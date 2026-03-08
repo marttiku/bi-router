@@ -25,6 +25,7 @@ const initParams = parseHashParams();
 
 // ── State ────────────────────────────────────────────────────────
 let waypoints = [];
+let deleteMode = false;
 let routePolyline = null;
 let routeCoordinates = [];
 let stravaLayer = null;
@@ -130,6 +131,13 @@ function addWaypoint(latlng) {
 
   marker.on('dragend', () => updateRoute());
 
+  marker.on('click', (e) => {
+    if (deleteMode) {
+      L.DomEvent.stopPropagation(e);
+      removeWaypoint(id);
+    }
+  });
+
   marker.on('contextmenu', (e) => {
     L.DomEvent.stopPropagation(e);
     removeWaypoint(id);
@@ -198,6 +206,12 @@ function startFromCurrentLocation() {
         const marker = L.marker(latlng, { draggable: true, icon }).addTo(map);
 
         marker.on('dragend', () => updateRoute());
+        marker.on('click', (e) => {
+          if (deleteMode) {
+            L.DomEvent.stopPropagation(e);
+            removeWaypoint(id);
+          }
+        });
         marker.on('contextmenu', (e) => {
           L.DomEvent.stopPropagation(e);
           removeWaypoint(id);
@@ -357,12 +371,23 @@ function updateDuration() {
 
 // ── Buttons ──────────────────────────────────────────────────────
 function updateButtons() {
-  document.getElementById('btn-undo').disabled = waypoints.length === 0;
-  document.getElementById('btn-clear').disabled = waypoints.length === 0;
+  const hasWp = waypoints.length > 0;
+  document.getElementById('btn-undo').disabled = !hasWp;
+  document.getElementById('btn-clear').disabled = !hasWp;
+  document.getElementById('btn-delete-mode').disabled = !hasWp;
   document.getElementById('btn-return-start').disabled = waypoints.length < 2;
   document.getElementById('btn-export').disabled = routeCoordinates.length === 0;
   document.getElementById('btn-google').disabled = waypoints.length < 2;
   document.getElementById('btn-send-device').disabled = waypoints.length < 2;
+
+  if (!hasWp && deleteMode) toggleDeleteMode();
+}
+
+function toggleDeleteMode() {
+  deleteMode = !deleteMode;
+  const btn = document.getElementById('btn-delete-mode');
+  btn.classList.toggle('active', deleteMode);
+  document.getElementById('map').style.cursor = deleteMode ? 'crosshair' : '';
 }
 
 // ── GPX Export ───────────────────────────────────────────────────
@@ -529,6 +554,7 @@ document.getElementById('speed-slider').addEventListener('input', (e) => {
 });
 
 // ── Action Buttons ───────────────────────────────────────────────
+document.getElementById('btn-delete-mode').addEventListener('click', toggleDeleteMode);
 document.getElementById('btn-undo').addEventListener('click', undoLastWaypoint);
 document.getElementById('btn-clear').addEventListener('click', clearAllWaypoints);
 document.getElementById('btn-return-start').addEventListener('click', returnToStart);
@@ -538,7 +564,9 @@ document.getElementById('btn-google').addEventListener('click', openInGoogleMaps
 document.getElementById('btn-send-device').addEventListener('click', sendToDevice);
 
 // ── Map Click ────────────────────────────────────────────────────
-map.on('click', (e) => addWaypoint(e.latlng));
+map.on('click', (e) => {
+  if (!deleteMode) addWaypoint(e.latlng);
+});
 
 // ── Init ─────────────────────────────────────────────────────────
 if (initParams.sport) {

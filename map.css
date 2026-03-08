@@ -180,17 +180,18 @@ body {
 .waypoint-remove {
   background: none;
   border: none;
-  color: #666;
+  color: #999;
   cursor: pointer;
-  font-size: 10px;
-  padding: 2px 5px;
+  font-size: 12px;
+  padding: 4px 6px;
   border-radius: 4px;
+  line-height: 1;
   transition: color 0.15s, background 0.15s;
 }
 
 .waypoint-remove:hover {
-  color: #e57373;
-  background: rgba(244, 67, 54, 0.1);
+  color: #f44336;
+  background: rgba(244, 67, 54, 0.15);
 }
 
 /* ── Stats ───────────────────────────────────── */
@@ -249,6 +250,11 @@ body {
 
 .btn-secondary:hover:not(:disabled) {
   background: #3a3a5a;
+}
+
+.btn-secondary.active {
+  background: #f44336;
+  color: #fff;
 }
 
 .btn-primary {
