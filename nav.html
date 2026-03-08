@@ -951,8 +951,13 @@
 
     /* ── Opportunity card rendering ───────────── */
     const shownOppKeys = new Set();
+    let renderedOppSignature = '';
 
-    function renderOppCards() {
+    function renderOppCards(force) {
+      const sig = opportunities.map(o => `${o.key}:${o.type}:${o.label}`).join('|');
+      if (!force && sig === renderedOppSignature) return;
+      renderedOppSignature = sig;
+
       oppStrip.innerHTML = '';
       const currentKeys = new Set();
       for (const opp of opportunities) {
@@ -1016,7 +1021,7 @@
       if (idx === -1) {
         console.log(`[opp] Key ${opp.key} not found in opportunities, ignoring`);
         opportunities = opportunities.filter(o => o.key !== opp.key);
-        renderOppCards();
+        renderOppCards(true);
         return;
       }
 
@@ -1035,7 +1040,7 @@
         }
         dismissedOppKeys.add(opp.key);
         opportunities.splice(idx, 1);
-        renderOppCards();
+        renderOppCards(true);
         return;
       }
 
@@ -1043,7 +1048,7 @@
       if (!cached || cached.status !== 'ok') {
         console.log(`[opp] Cache miss for ${opp.key}: ${cached ? cached.status : 'null'}`);
         opportunities.splice(idx, 1);
-        renderOppCards();
+        renderOppCards(true);
         return;
       }
 
@@ -1068,7 +1073,7 @@
         } else {
           console.log(`[opp] Live detour also failed`);
           if (card) card.querySelector('.opp-btn').textContent = '✗';
-          setTimeout(() => { opportunities.splice(idx, 1); renderOppCards(); }, 1500);
+          setTimeout(() => { opportunities.splice(idx, 1); renderOppCards(true); }, 1500);
           return;
         }
       } else {
@@ -1082,13 +1087,13 @@
 
       oppRouteCache.clear();
       opportunities.splice(idx, 1);
-      renderOppCards();
+      renderOppCards(true);
     }
 
     function dismissPassedOpps(snapIdx) {
       const before = opportunities.length;
       opportunities = opportunities.filter(o => o.routeIdx > snapIdx - 5);
-      if (opportunities.length !== before) renderOppCards();
+      if (opportunities.length !== before) renderOppCards(true);
 
       for (let i = tempMarkers.length - 1; i >= 0; i--) {
         const ml = tempMarkers[i].getLatLng();
@@ -1382,7 +1387,7 @@
         lastScanTime = 0;
       } else {
         opportunities.length = 0;
-        renderOppCards();
+        renderOppCards(true);
         oppRouteCache.clear();
       }
     });
