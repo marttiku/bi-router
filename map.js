@@ -696,12 +696,10 @@ const SQ_ZOOM = 14;
 const SQINHO_ZOOM = 17;
 let sqRaw = { 14: null, 17: null };
 let sqTileLayer = null;
-let sqGridLayer = null;
 let sqNewLayer = null;
 let sqEnabled = false;
-let sqShowGrid = true;
 let sqShowNew = true;
-let sqOpacity = 0.5;
+let sqOpacity = 0.7;
 
 function lon2tile(lng, zoom) {
   return Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
@@ -725,7 +723,7 @@ function _makeCanvas(size) {
   return { canvas, ctx };
 }
 
-function _drawBitmap(ctx, tileX, tileY, zoom, tileSize, sqZoom, rawSet, color, alpha) {
+function _drawUnvisited(ctx, tileX, tileY, zoom, tileSize, sqZoom, rawSet, color, alpha) {
   const scale = Math.pow(2, sqZoom - zoom);
   const cellPx = tileSize / scale;
   if (cellPx < 0.5) return;
@@ -739,7 +737,7 @@ function _drawBitmap(ctx, tileX, tileY, zoom, tileSize, sqZoom, rawSet, color, a
   ctx.globalAlpha = alpha;
   for (let x = minX; x <= maxX; x++) {
     for (let y = minY; y <= maxY; y++) {
-      if (rawSet.has(`${x}-${y}`)) {
+      if (!rawSet.has(`${x}-${y}`)) {
         ctx.fillRect(
           (x - tileX * scale) * cellPx,
           (y - tileY * scale) * cellPx,
@@ -751,13 +749,13 @@ function _drawBitmap(ctx, tileX, tileY, zoom, tileSize, sqZoom, rawSet, color, a
   ctx.globalAlpha = 1;
 }
 
-function _drawGridLines(ctx, tileX, tileY, zoom, tileSize, sqZoom, color, lineWidth, alpha) {
+function _drawUnvisitedBorders(ctx, tileX, tileY, zoom, tileSize, sqZoom, rawSet, color, lineWidth, alpha) {
   const scale = Math.pow(2, sqZoom - zoom);
   const cellPx = tileSize / scale;
-  if (cellPx < 4) return;
+  if (cellPx < 3) return;
 
-  const minX = Math.floor(tileX * scale);
-  const minY = Math.floor(tileY * scale);
+  const minX = Math.floor(tileX * scale) - 1;
+  const minY = Math.floor(tileY * scale) - 1;
   const maxX = Math.ceil((tileX + 1) * scale);
   const maxY = Math.ceil((tileY + 1) * scale);
 
@@ -765,15 +763,17 @@ function _drawGridLines(ctx, tileX, tileY, zoom, tileSize, sqZoom, color, lineWi
   ctx.lineWidth = lineWidth;
   ctx.globalAlpha = alpha;
   ctx.beginPath();
+
   for (let x = minX; x <= maxX; x++) {
-    const px = (x - tileX * scale) * cellPx;
-    ctx.moveTo(px, 0);
-    ctx.lineTo(px, tileSize);
-  }
-  for (let y = minY; y <= maxY; y++) {
-    const py = (y - tileY * scale) * cellPx;
-    ctx.moveTo(0, py);
-    ctx.lineTo(tileSize, py);
+    for (let y = minY; y <= maxY; y++) {
+      if (rawSet.has(`${x}-${y}`)) continue;
+      const px = (x - tileX * scale) * cellPx;
+      const py = (y - tileY * scale) * cellPx;
+      if (rawSet.has(`${x}-${y - 1}`)) { ctx.moveTo(px, py); ctx.lineTo(px + cellPx, py); }
+      if (rawSet.has(`${x}-${y + 1}`)) { ctx.moveTo(px, py + cellPx); ctx.lineTo(px + cellPx, py + cellPx); }
+      if (rawSet.has(`${x - 1}-${y}`)) { ctx.moveTo(px, py); ctx.lineTo(px, py + cellPx); }
+      if (rawSet.has(`${x + 1}-${y}`)) { ctx.moveTo(px + cellPx, py); ctx.lineTo(px + cellPx, py + cellPx); }
+    }
   }
   ctx.stroke();
   ctx.globalAlpha = 1;
@@ -786,8 +786,14 @@ function createSqTileLayer() {
       const size = this.getTileSize();
       const { canvas, ctx } = _makeCanvas(size);
       setTimeout(() => {
-        if (sqRaw[14]) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, sqRaw[14], '#c8a0e8', sqOpacity);
-        if (sqRaw[17]) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, sqRaw[17], '#e8c070', sqOpacity * 0.8);
+        if (sqRaw[14]) {
+          _drawUnvisited(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, sqRaw[14], '#2a1a3e', sqOpacity);
+          _drawUnvisitedBorders(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, sqRaw[14], '#663399', 1.5, 0.6);
+        }
+        if (sqRaw[17]) {
+          _drawUnvisited(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, sqRaw[17], '#3e2a1a', sqOpacity * 0.6);
+          _drawUnvisitedBorders(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, sqRaw[17], '#996633', 1, 0.4);
+        }
         done(null, canvas);
       }, 0);
       return canvas;
@@ -795,25 +801,30 @@ function createSqTileLayer() {
   });
 }
 
-function createSqGridLayer() {
-  return L.GridLayer.extend({
-    options: { tileSize: 256 },
-    createTile(coords, done) {
-      const size = this.getTileSize();
-      const { canvas, ctx } = _makeCanvas(size);
-      const z = coords.z;
-      setTimeout(() => {
-        const sqCellPx = size.x / Math.pow(2, SQ_ZOOM - z);
-        _drawGridLines(ctx, coords.x, coords.y, z, size.x, SQ_ZOOM, '#663399', sqCellPx > 20 ? 1 : 0.5, 0.35);
-        const inhoCellPx = size.x / Math.pow(2, SQINHO_ZOOM - z);
-        if (inhoCellPx >= 4) {
-          _drawGridLines(ctx, coords.x, coords.y, z, size.x, SQINHO_ZOOM, '#996633', 0.5, 0.2);
-        }
-        done(null, canvas);
-      }, 0);
-      return canvas;
+function _drawBitmap(ctx, tileX, tileY, zoom, tileSize, sqZoom, tileSet, color, alpha) {
+  const scale = Math.pow(2, sqZoom - zoom);
+  const cellPx = tileSize / scale;
+  if (cellPx < 0.5) return;
+
+  const minX = Math.floor(tileX * scale);
+  const minY = Math.floor(tileY * scale);
+  const maxX = Math.ceil((tileX + 1) * scale) - 1;
+  const maxY = Math.ceil((tileY + 1) * scale) - 1;
+
+  ctx.fillStyle = color;
+  ctx.globalAlpha = alpha;
+  for (let x = minX; x <= maxX; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      if (tileSet.has(`${x}-${y}`)) {
+        ctx.fillRect(
+          (x - tileX * scale) * cellPx,
+          (y - tileY * scale) * cellPx,
+          cellPx, cellPx
+        );
+      }
     }
-  });
+  }
+  ctx.globalAlpha = 1;
 }
 
 function createSqNewLayer() {
@@ -830,8 +841,8 @@ function createSqNewLayer() {
       const size = this.getTileSize();
       const { canvas, ctx } = _makeCanvas(size);
       setTimeout(() => {
-        if (this._new14?.size) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, this._new14, '#4cf095', 0.5);
-        if (this._new17?.size) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, this._new17, '#00fcca', 0.5);
+        if (this._new14?.size) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, this._new14, '#4cf095', 0.6);
+        if (this._new17?.size) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, this._new17, '#00fcca', 0.6);
         done(null, canvas);
       }, 0);
       return canvas;
@@ -932,7 +943,6 @@ async function loadSquadratsData() {
 async function toggleSquadrats(show) {
   if (!show) {
     if (sqTileLayer) map.removeLayer(sqTileLayer);
-    if (sqGridLayer) map.removeLayer(sqGridLayer);
     if (sqNewLayer) map.removeLayer(sqNewLayer);
     document.getElementById('squadrats-controls').style.display = 'none';
     document.getElementById('squadrats-status').style.display = 'none';
@@ -957,11 +967,6 @@ async function toggleSquadrats(show) {
   sqTileLayer = new (createSqTileLayer())();
   sqTileLayer.addTo(map);
 
-  if (sqShowGrid) {
-    sqGridLayer = new (createSqGridLayer())();
-    sqGridLayer.addTo(map);
-  }
-
   if (sqShowNew) {
     sqNewLayer = new (createSqNewLayer())();
     sqNewLayer.addTo(map);
@@ -977,16 +982,6 @@ document.getElementById('squadrats-opacity-slider').addEventListener('input', (e
   sqOpacity = parseInt(e.target.value) / 100;
   document.getElementById('squadrats-opacity-value').textContent = `${e.target.value}%`;
   if (sqTileLayer) sqTileLayer.redraw();
-});
-
-document.getElementById('toggle-squadrats-grid').addEventListener('change', (e) => {
-  sqShowGrid = e.target.checked;
-  if (sqShowGrid && sqEnabled) {
-    if (!sqGridLayer) sqGridLayer = new (createSqGridLayer())();
-    sqGridLayer.addTo(map);
-  } else if (sqGridLayer) {
-    map.removeLayer(sqGridLayer);
-  }
 });
 
 document.getElementById('toggle-squadrats-new').addEventListener('change', (e) => {
