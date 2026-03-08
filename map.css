@@ -397,6 +397,15 @@ body {
   background: #00695c;
 }
 
+.btn-navigate-dev {
+  background: #ff5722;
+  color: #fff;
+}
+
+.btn-navigate-dev:hover:not(:disabled) {
+  background: #e64a19;
+}
+
 .btn-share {
   background: #5c6bc0;
   color: #fff;

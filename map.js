@@ -427,6 +427,7 @@ function updateButtons() {
   document.getElementById('btn-return-start').disabled = waypoints.length < 2;
   document.getElementById('btn-export').disabled = routeCoordinates.length === 0;
   document.getElementById('btn-navigate').disabled = routeCoordinates.length < 2;
+  document.getElementById('btn-navigate-dev').disabled = routeCoordinates.length < 2;
   document.getElementById('btn-share').disabled = routeCoordinates.length < 2;
   document.getElementById('btn-google').disabled = waypoints.length < 2;
   document.getElementById('btn-send-device').disabled = routeCoordinates.length < 2;
@@ -490,6 +491,26 @@ function buildNavUrl(coords) {
 
   const baseUrl = 'https://marttiku.github.io/bi-router/nav.html';
   let url = `${baseUrl}#${encodeURIComponent(encoded)}`;
+
+  const uid = sqRaw._uid;
+  if (uid) url += `&uid=${encodeURIComponent(uid)}`;
+
+  return url;
+}
+
+function buildDevNavUrl(coords) {
+  const MAX_ENCODED_LEN = 2800;
+  let pts = coords;
+  let epsilon = 0.00001;
+
+  let encoded = encodePolyline(pts);
+  while (encoded.length > MAX_ENCODED_LEN && epsilon < 0.01) {
+    epsilon *= 2;
+    pts = douglasPeucker(coords, epsilon);
+    encoded = encodePolyline(pts);
+  }
+
+  let url = `http://localhost:8080/nav.html#${encodeURIComponent(encoded)}&dev=1`;
 
   const uid = sqRaw._uid;
   if (uid) url += `&uid=${encodeURIComponent(uid)}`;
@@ -1518,6 +1539,10 @@ document.getElementById('btn-export').addEventListener('click', exportGPX);
 document.getElementById('btn-navigate').addEventListener('click', () => {
   if (routeCoordinates.length < 2) return;
   window.open(buildNavUrl(routeCoordinates), '_blank');
+});
+document.getElementById('btn-navigate-dev').addEventListener('click', () => {
+  if (routeCoordinates.length < 2) return;
+  window.open(buildDevNavUrl(routeCoordinates), '_blank');
 });
 document.getElementById('btn-share').addEventListener('click', async () => {
   if (routeCoordinates.length < 2) return;
