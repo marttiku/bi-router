@@ -167,6 +167,15 @@
     }
 
     .leaflet-tile-pane { filter: brightness(0.85) saturate(0.8); }
+
+    .leaflet-map-pane {
+      transition: transform 0.4s ease-out;
+      transform-origin: center center;
+    }
+
+    .heading-up .leaflet-marker-icon {
+      transition: transform 0.4s ease-out;
+    }
   </style>
 </head>
 <body>
@@ -190,6 +199,7 @@
 
   <div id="controls">
     <button class="map-btn active" id="btn-center" title="Re-center">⊕</button>
+    <button class="map-btn" id="btn-orient" title="North up / Heading up">N</button>
     <button class="map-btn" id="btn-lock" title="Keep screen on">☀</button>
   </div>
 
@@ -325,6 +335,8 @@
 
     /* ── State ─────────────────────────────────── */
     let following = true;
+    let headingUp = false;
+    let currentBearing = 0;
     let wakeLock = null;
 
     const distEl = document.getElementById('dist-remaining');
@@ -375,12 +387,21 @@
 
       const nextIdx = Math.min(snap.index + 3, route.length - 1);
       const brng = bearing(cur, route[nextIdx]);
-      arrowEl.style.transform = `rotate(${brng}deg)`;
+      currentBearing = brng;
+
+      if (headingUp) {
+        arrowEl.style.transform = 'rotate(0deg)';
+        rotateMap(brng);
+      } else {
+        arrowEl.style.transform = `rotate(${brng}deg)`;
+        rotateMap(0);
+      }
 
       if (remaining < 30) {
         distEl.textContent = 'Arrived';
         etaEl.textContent = '—';
         arrowEl.style.transform = 'rotate(0deg)';
+        rotateMap(0);
       }
 
       if (following) {
@@ -393,8 +414,24 @@
       distEl.textContent = '—';
     }
 
+    /* ── Map Rotation ──────────────────────────── */
+    function rotateMap(deg) {
+      const pane = map.getPane('mapPane');
+      if (!pane) return;
+      const center = map.getSize().divideBy(2);
+      pane.style.transformOrigin = `${center.x}px ${center.y}px`;
+      pane.style.transform = `rotate(${-deg}deg)`;
+
+      document.querySelectorAll('.leaflet-marker-icon').forEach(el => {
+        el.style.transformOrigin = 'center center';
+        const existing = el.style.transform.replace(/rotate\([^)]*\)\s*/g, '');
+        el.style.transform = existing + ` rotate(${deg}deg)`;
+      });
+    }
+
     /* ── Controls ──────────────────────────────── */
     const centerBtn = document.getElementById('btn-center');
+    const orientBtn = document.getElementById('btn-orient');
     const lockBtn = document.getElementById('btn-lock');
 
     centerBtn.addEventListener('click', () => {
@@ -403,6 +440,19 @@
       const ll = gpsDot.getLatLng();
       if (ll.lat !== 0 || ll.lng !== 0) {
         map.setView(ll, Math.max(map.getZoom(), 16), { animate: true });
+      }
+    });
+
+    orientBtn.addEventListener('click', () => {
+      headingUp = !headingUp;
+      orientBtn.classList.toggle('active', headingUp);
+      orientBtn.textContent = headingUp ? '⇧' : 'N';
+      if (headingUp) {
+        rotateMap(currentBearing);
+        arrowEl.style.transform = 'rotate(0deg)';
+      } else {
+        rotateMap(0);
+        arrowEl.style.transform = `rotate(${currentBearing}deg)`;
       }
     });
 
