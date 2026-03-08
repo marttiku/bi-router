@@ -34,6 +34,11 @@
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.squadrats.com/*"],
+      "js": ["squadrats-connect.js"],
+      "run_at": "document_idle"
     }
   ]
 }

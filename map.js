@@ -921,7 +921,7 @@ async function loadSquadratsData() {
 
   if (!uidResult?.uid) {
     statusEl.className = 'squadrats-status error';
-    statusEl.innerHTML = 'Not connected. Install the <a href="https://chromewebstore.google.com/detail/squadrats-route-planning/mkcobabnclhdodfhajlagglahfhkeeon" target="_blank" style="color:#bb86fc">Squadrats extension</a> and connect your account.';
+    statusEl.innerHTML = 'Not connected. <a href="https://squadrats.com/map" target="_blank" style="color:#bb86fc">Visit squadrats.com</a> while logged in, then toggle this again.';
     return false;
   }
 

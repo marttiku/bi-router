@@ -27,10 +27,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'getSquadratsUid') {
-    chrome.storage.local.get(['squadrant_uid'], (result) => {
-      sendResponse({ uid: result?.squadrant_uid || null });
+    chrome.storage.local.get(['squadrats_uid'], (result) => {
+      sendResponse({ uid: result?.squadrats_uid || null });
     });
     return true;
+  }
+
+  if (message.type === 'squadratsUidCaptured') {
+    if (message.uid) {
+      chrome.storage.local.set({ squadrats_uid: message.uid });
+    }
+    return;
   }
 });
 
