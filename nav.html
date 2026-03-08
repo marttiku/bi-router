@@ -239,12 +239,39 @@
       background: #ff5722;
       color: #fff;
       text-align: center;
-      padding: 3px 0;
+      padding: 3px 8px;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 1px;
       flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
     }
+
+    #dev-uid-input {
+      width: 110px;
+      padding: 2px 6px;
+      border: 1px solid rgba(255,255,255,0.4);
+      border-radius: 4px;
+      background: rgba(0,0,0,0.2);
+      color: #fff;
+      font-size: 11px;
+      outline: none;
+    }
+    #dev-uid-input::placeholder { color: rgba(255,255,255,0.5); }
+    #dev-uid-btn {
+      padding: 2px 8px;
+      border: 1px solid rgba(255,255,255,0.4);
+      border-radius: 4px;
+      background: rgba(0,0,0,0.2);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    #dev-uid-btn:active { background: rgba(0,0,0,0.4); }
 
     #dev-slider-wrap {
       position: absolute;
@@ -290,7 +317,11 @@
 </head>
 <body>
 
-  <div class="dev-banner" id="dev-banner" style="display:none">DEV MODE — Drag marker or use slider</div>
+  <div class="dev-banner" id="dev-banner" style="display:none">
+    <span>DEV MODE</span>
+    <input type="text" id="dev-uid-input" placeholder="Squadrats UID">
+    <button id="dev-uid-btn">Load SQ</button>
+  </div>
 
   <div id="stats-bar">
     <div class="stats-row">
@@ -821,27 +852,31 @@
     }
 
     /* ── Squadrats data loading ────────────────── */
-    if (hashParams.uid) {
+    async function loadSquadratsForUid(uid) {
       const servers = ['https://mainframe-proxy-01.squadrats.com', 'https://mainframe-proxy-02.squadrats.com'];
-      (async () => {
-        for (const base of servers) {
-          try {
-            const r = await fetch(`${base}/anonymous/squadrants/${hashParams.uid}?planner=strava`);
-            if (!r.ok) continue;
-            const d = await r.json();
-            if (d?.raw) {
-              sqSet14 = d.raw[14] ? new Set(Array.isArray(d.raw[14]) ? d.raw[14] : Object.keys(d.raw[14])) : null;
-              sqSet17 = d.raw[17] ? new Set(Array.isArray(d.raw[17]) ? d.raw[17] : Object.keys(d.raw[17])) : null;
-              sqDataLoaded = true;
-              addSqLayer();
-              computeSqOnRoute();
-              updateSqStats();
-              sqStatsEl.style.display = 'flex';
-              return;
-            }
-          } catch { /* try next or skip */ }
-        }
-      })();
+      for (const base of servers) {
+        try {
+          const r = await fetch(`${base}/anonymous/squadrants/${uid}?planner=strava`);
+          if (!r.ok) continue;
+          const d = await r.json();
+          if (d?.raw) {
+            sqSet14 = d.raw[14] ? new Set(Array.isArray(d.raw[14]) ? d.raw[14] : Object.keys(d.raw[14])) : null;
+            sqSet17 = d.raw[17] ? new Set(Array.isArray(d.raw[17]) ? d.raw[17] : Object.keys(d.raw[17])) : null;
+            sqDataLoaded = true;
+            if (sqLayer) map.removeLayer(sqLayer);
+            addSqLayer();
+            computeSqOnRoute();
+            updateSqStats();
+            sqStatsEl.style.display = 'flex';
+            return true;
+          }
+        } catch { /* try next or skip */ }
+      }
+      return false;
+    }
+
+    if (hashParams.uid) {
+      loadSquadratsForUid(hashParams.uid);
     }
 
     /* ── State ─────────────────────────────────── */
@@ -1144,6 +1179,28 @@
           simulateAt(parseInt(devSlider.value));
           e.preventDefault();
         }
+      });
+
+      const devUidInput = document.getElementById('dev-uid-input');
+      const devUidBtn = document.getElementById('dev-uid-btn');
+
+      if (hashParams.uid) {
+        devUidInput.value = hashParams.uid;
+        devUidBtn.textContent = 'Loaded';
+      }
+
+      async function devLoadSq() {
+        const uid = devUidInput.value.trim();
+        if (!uid) return;
+        devUidBtn.textContent = '…';
+        const ok = await loadSquadratsForUid(uid);
+        devUidBtn.textContent = ok ? 'Loaded' : 'Failed';
+        if (ok) simulateAt(parseInt(devSlider.value));
+      }
+
+      devUidBtn.addEventListener('click', devLoadSq);
+      devUidInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') devLoadSq();
       });
 
       simulateAt(0);
