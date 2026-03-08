@@ -1157,13 +1157,16 @@
 
       const departSnap = snapToRoute(curPt, originalRoute);
       let departIdx = departSnap.index;
+
+      let activeDetour = null;
       for (const d of detours) {
         if (departIdx >= d.departIdx && departIdx < d.rejoinIdx) {
+          activeDetour = d;
           departIdx = d.rejoinIdx;
         }
       }
       const rejoinIdx = Math.max(cached.rejoinIdx, departIdx + 1);
-      const to = originalRoute[rejoinIdx];
+      const to = originalRoute[Math.min(rejoinIdx, originalRoute.length - 1)];
       const viaPoints = opp.viaPoints || [];
       const detourResult = await fetchDetourRoute([curPt, ...viaPoints, to]);
 
@@ -1172,6 +1175,12 @@
         if (card) card.querySelector('.opp-btn').textContent = '✗';
         setTimeout(() => { opportunities.splice(idx, 1); renderOppCards(true); }, 1500);
         return;
+      }
+
+      if (activeDetour) {
+        const snapInDetour = snapToRoute(curPt, activeDetour.coords);
+        activeDetour.coords = activeDetour.coords.slice(0, snapInDetour.index + 1);
+        console.log(`[opp] Truncated active detour [${activeDetour.departIdx},${activeDetour.rejoinIdx}] at coord ${snapInDetour.index}`);
       }
 
       console.log(`[opp] Adding detour: depart=${departIdx}, rejoin=${rejoinIdx}, coords=${detourResult.coords.length} pts`);
