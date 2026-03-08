@@ -1097,6 +1097,11 @@
       if (sqSet14) scanZoom(SQ_Z, sqSet14, 'SQ');
       if (sqSet17) scanZoom(SQINHO_Z, sqSet17, 'inho');
       console.log(`[dev] Found ${oppMarkers.length} opportunity markers (SQ14: ${sqSet14 ? sqSet14.size : 'null'}, SQ17: ${sqSet17 ? sqSet17.size : 'null'})`);
+
+      if (oppMarkers.length > 0) {
+        const pts = [...route, ...oppMarkers.map(m => { const l = m.getLatLng(); return [l.lat, l.lng]; })];
+        map.fitBounds(L.latLngBounds(pts.map(p => L.latLng(p[0], p[1]))), { padding: [30, 30] });
+      }
     }
 
     /* ── Squadrats data loading ────────────────── */
