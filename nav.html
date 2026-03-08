@@ -569,6 +569,39 @@
 
     if (!route) { throw new Error('abort'); }
 
+    const originalRoute = route.map(p => [...p]);
+    let detours = [];
+
+    function buildEffectiveRoute() {
+      const eff = [];
+      let oi = 0;
+      for (const d of detours) {
+        while (oi < d.departIdx && oi < originalRoute.length) eff.push(originalRoute[oi++]);
+        eff.push(...d.coords);
+        oi = d.rejoinIdx;
+      }
+      while (oi < originalRoute.length) eff.push(originalRoute[oi++]);
+      route = eff;
+      routeLine.setLatLngs(route);
+      totalDistVar = routeLength(route);
+      const slider = document.getElementById('dev-slider');
+      if (slider) slider.max = route.length - 1;
+    }
+
+    function isInDetourRange(origIdx) {
+      for (const d of detours) {
+        if (origIdx >= d.departIdx && origIdx < d.rejoinIdx) return true;
+      }
+      return false;
+    }
+
+    function addDetour(departIdx, rejoinIdx, coords) {
+      const entry = { departIdx, rejoinIdx, coords };
+      detours.push(entry);
+      detours.sort((a, b) => a.departIdx - b.departIdx);
+      buildEffectiveRoute();
+    }
+
     let totalDistVar = routeLength(route);
 
     /* ── Map Setup ─────────────────────────────── */
@@ -825,11 +858,11 @@
 
     function findRejoinIdx(fromIdx, minDistM) {
       let acc = 0;
-      for (let i = fromIdx; i < route.length - 1; i++) {
-        acc += haversine(route[i], route[i + 1]);
-        if (acc >= minDistM) return Math.min(i + 1, route.length - 1);
+      for (let i = fromIdx; i < originalRoute.length - 1; i++) {
+        acc += haversine(originalRoute[i], originalRoute[i + 1]);
+        if (acc >= minDistM) return Math.min(i + 1, originalRoute.length - 1);
       }
-      return route.length - 1;
+      return originalRoute.length - 1;
     }
 
     function sortNearestNeighbor(start, points) {
@@ -849,44 +882,45 @@
       return ordered;
     }
 
-    function scanOpportunities(snapIdx) {
+    function scanOpportunities(origSnapIdx) {
       if (!sqSet14 && !sqSet17) return;
-      lastScanSnapIdx = snapIdx;
-      const scanStart = (detourEndIdx > snapIdx) ? detourEndIdx : snapIdx;
-      if (scanStart >= route.length - 1) return;
+      lastScanSnapIdx = origSnapIdx;
+      const scanStart = origSnapIdx;
+      if (scanStart >= originalRoute.length - 1) return;
       const redOpps = [];
       const yellowCandidates = [];
 
       function scanZoom(z, rawSet, capturedSet, label) {
         const seen = new Set();
         let acc = 0;
-        for (let i = scanStart; i < route.length - 1 && acc < 1500; i++) {
-          acc += haversine(route[i], route[i + 1]);
-          const tx = lon2tile(route[i][1], z);
-          const ty = lat2tile(route[i][0], z);
+        for (let i = scanStart; i < originalRoute.length - 1 && acc < 1500; i++) {
+          if (isInDetourRange(i)) continue;
+          acc += haversine(originalRoute[i], originalRoute[i + 1]);
+          const tx = lon2tile(originalRoute[i][1], z);
+          const ty = lat2tile(originalRoute[i][0], z);
           for (let dx = -1; dx <= 1; dx++)
             for (let dy = -1; dy <= 1; dy++) {
               const key = `${tx + dx}-${ty + dy}`;
               if (seen.has(key) || rawSet.has(key) || capturedSet.has(key) || dismissedOppKeys.has(key)) continue;
               seen.add(key);
-              const borderDist = tileBorderDistToPoint(key, z, route[i]);
+              const borderDist = tileBorderDistToPoint(key, z, originalRoute[i]);
 
               let closestRouteIdx = i;
               let minRouteDist = Infinity;
-              const searchEnd = Math.min(i + 50, route.length);
+              const searchEnd = Math.min(i + 50, originalRoute.length);
               for (let j = i; j < searchEnd; j++) {
-                const d = haversine(tileCenter(key, z), route[j]);
+                const d = haversine(tileCenter(key, z), originalRoute[j]);
                 if (d < minRouteDist) { minRouteDist = d; closestRouteIdx = j; }
               }
 
               if (borderDist <= 20) {
                 redOpps.push({ type: 'red', key, z, tiles: 1, dist: Math.round(borderDist),
                   label: `🚶 ${Math.round(borderDist)}m +1 ${label}`,
-                  borderPt: nearestBorderPoint(key, z, route[closestRouteIdx]),
+                  borderPt: nearestBorderPoint(key, z, originalRoute[closestRouteIdx]),
                   routeIdx: closestRouteIdx, tileLabel: label });
               } else if (minRouteDist < 800) {
                 const cluster = findAdjacentUnvisited(key, z, rawSet, capturedSet, 3);
-                const viaPoints = sortNearestNeighbor(route[closestRouteIdx], cluster.map(k => pointInsideTile(k, z, route[closestRouteIdx], 5)));
+                const viaPoints = sortNearestNeighbor(originalRoute[closestRouteIdx], cluster.map(k => pointInsideTile(k, z, originalRoute[closestRouteIdx], 5)));
                 const rejoinIdx = findRejoinIdx(closestRouteIdx, Math.max(300, minRouteDist * 2));
                 yellowCandidates.push({ type: 'yellow', key, z, keys: cluster, tiles: cluster.length,
                   dist: Math.round(2 * minRouteDist * 1.4),
@@ -907,7 +941,6 @@
       for (const opp of yellowCandidates) {
         const cached = oppRouteCache.get(opp.key);
         if (cached?.status === 'ok') {
-          opp.cachedRoute = cached.route;
           opp.dist = Math.round(cached.extraDist);
           opp.tiles = cached.tiles;
           opp.label = `+${opp.dist}m +${opp.tiles} ${opp.tileLabel}`;
@@ -938,23 +971,22 @@
     }
 
     let lastScanSnapIdx = 0;
-    let detourEndIdx = -1;
 
     async function validateYellowOpp(opp, snapIdx) {
-      const from = route[opp.routeIdx];
-      const to = route[opp.rejoinIdx];
+      const from = originalRoute[opp.routeIdx];
+      const to = originalRoute[opp.rejoinIdx];
       const waypoints = [from, ...opp.viaPoints, to];
 
       console.log(`[opp] Validating yellow: ${opp.key} (${opp.tiles} tiles, via ${waypoints.length} pts)`);
-      const detour = await fetchDetourRoute(waypoints);
-      if (!detour) {
+      const detourResult = await fetchDetourRoute(waypoints);
+      if (!detourResult) {
         console.log(`[opp] Failed: ${opp.key} — no route found`);
         oppRouteCache.set(opp.key, { status: 'failed' });
         return;
       }
 
-      const directDist = routeLength(route.slice(opp.routeIdx, opp.rejoinIdx + 1));
-      const extraDist = detour.distance - directDist;
+      const directDist = routeLength(originalRoute.slice(opp.routeIdx, opp.rejoinIdx + 1));
+      const extraDist = detourResult.distance - directDist;
 
       const maxExtra = MAX_DETOUR_EXTRA_M * opp.tiles;
       if (extraDist > maxExtra) {
@@ -966,11 +998,10 @@
       console.log(`[opp] Validated: ${opp.key} — +${Math.round(extraDist)}m for ${opp.tiles} tiles (limit ${maxExtra}m)`);
       oppRouteCache.set(opp.key, {
         status: 'ok',
-        route: detour,
         extraDist: Math.max(0, extraDist),
         tiles: opp.tiles,
         routeIdx: opp.routeIdx,
-        rejoinPt: to,
+        rejoinIdx: opp.rejoinIdx,
       });
 
       scanOpportunities(lastScanSnapIdx);
@@ -1110,57 +1141,45 @@
 
       const currentPos = gpsDot.getLatLng();
       const curPt = [currentPos.lat, currentPos.lng];
-      const snap = snapToRoute(curPt, route);
 
       const card = oppStrip.children[idx];
       if (card) card.querySelector('.opp-btn').textContent = '…';
 
-      const rejoinPt = cached.rejoinPt;
-      const rejoinSnap = snapToRoute(rejoinPt, route);
-      const rejoinIdx = Math.max(rejoinSnap.index, snap.index + 1);
-      const to = route[Math.min(rejoinIdx, route.length - 1)];
-      const viaPoints = opp.viaPoints || [cached.route.coords[Math.floor(cached.route.coords.length / 2)]];
-      const detour = await fetchDetourRoute([curPt, ...viaPoints, to]);
+      const departSnap = snapToRoute(curPt, originalRoute);
+      const departIdx = departSnap.index;
+      const rejoinIdx = cached.rejoinIdx;
+      const to = originalRoute[rejoinIdx];
+      const viaPoints = opp.viaPoints || [];
+      const detourResult = await fetchDetourRoute([curPt, ...viaPoints, to]);
 
-      if (!detour) {
+      if (!detourResult) {
         console.log(`[opp] Detour from current position failed`);
         if (card) card.querySelector('.opp-btn').textContent = '✗';
         setTimeout(() => { opportunities.splice(idx, 1); renderOppCards(true); }, 1500);
         return;
       }
 
-      const detourEnd = detour.coords[detour.coords.length - 1];
-      const endSnap = snapToRoute(detourEnd, route);
-      const actualRejoin = Math.max(endSnap.index, snap.index + 1);
-      const removeCount = actualRejoin - snap.index;
-      console.log(`[opp] Splicing route: snap=${snap.index}, rejoin=${actualRejoin}, remove=${removeCount}, insert=${detour.coords.length} pts`);
-      route.splice(snap.index, Math.max(removeCount, 1), ...detour.coords);
-      routeLine.setLatLngs(route);
-      totalDistVar = routeLength(route);
-      detourEndIdx = snap.index + detour.coords.length;
+      console.log(`[opp] Adding detour: depart=${departIdx}, rejoin=${rejoinIdx}, coords=${detourResult.coords.length} pts`);
+      addDetour(departIdx, rejoinIdx, detourResult.coords);
 
       if (opp.keys) opp.keys.forEach(k => dismissedOppKeys.add(k));
       else dismissedOppKeys.add(opp.key);
 
-      for (const [k, v] of oppRouteCache) {
-        if (v.routeIdx !== undefined && v.routeIdx >= snap.index && v.routeIdx <= detourEndIdx) {
-          oppRouteCache.delete(k);
-        }
-      }
       opportunities.splice(idx, 1);
       renderOppCards(true);
     }
 
-    function dismissPassedOpps(snapIdx) {
+    function dismissPassedOpps(origSnapIdx) {
       const before = opportunities.length;
-      opportunities = opportunities.filter(o => o.routeIdx > snapIdx - 5);
+      opportunities = opportunities.filter(o => o.routeIdx > origSnapIdx - 5);
       if (opportunities.length !== before) renderOppCards(true);
 
+      const curPt = originalRoute[origSnapIdx];
       for (let i = tempMarkers.length - 1; i >= 0; i--) {
         const ml = tempMarkers[i].getLatLng();
-        if (haversine([ml.lat, ml.lng], route[snapIdx]) > 200) continue;
-        const markerRouteSnap = snapToRoute([ml.lat, ml.lng], route);
-        if (markerRouteSnap.index < snapIdx) {
+        if (haversine([ml.lat, ml.lng], curPt) > 200) continue;
+        const markerSnap = snapToRoute([ml.lat, ml.lng], originalRoute);
+        if (markerSnap.index < origSnapIdx) {
           map.removeLayer(tempMarkers[i]);
           tempMarkers.splice(i, 1);
         }
@@ -1297,12 +1316,13 @@
       if (sqDataLoaded) {
         checkSqCapture(cur);
         if (sqOppEnabled) {
+          const origSnap = snapToRoute(cur, originalRoute);
           const now2 = Date.now();
           if (now2 - lastScanTime > 5000) {
             lastScanTime = now2;
-            scanOpportunities(snap.index);
+            scanOpportunities(origSnap.index);
           }
-          dismissPassedOpps(snap.index);
+          dismissPassedOpps(origSnap.index);
         }
       }
 
@@ -1653,6 +1673,72 @@
 
       simulateAt(0, true);
     }
+
+    window.testDetourSystem = function() {
+      const saved = { orig: originalRoute, det: detours, r: route };
+      let pass = 0, fail = 0;
+      function assert(cond, msg) {
+        if (cond) { pass++; console.log(`  ✓ ${msg}`); }
+        else { fail++; console.error(`  ✗ ${msg}`); }
+      }
+
+      const synth = [];
+      for (let i = 0; i < 100; i++) synth.push([59.0 + i * 0.001, 24.0 + i * 0.001]);
+      originalRoute.length = 0;
+      synth.forEach(p => originalRoute.push(p));
+      detours.length = 0;
+
+      console.log('Test 1: buildEffectiveRoute with no detours');
+      buildEffectiveRoute();
+      assert(route.length === 100, `route.length=${route.length} should be 100`);
+
+      console.log('Test 2: single detour A at 20-30');
+      const dA = [[59.1, 24.1], [59.11, 24.11]];
+      addDetour(20, 30, dA);
+      assert(detours.length === 1, `detours.length=${detours.length} should be 1`);
+      assert(route.length === 100 - (30 - 20) + dA.length, `route.length=${route.length} should be ${100 - 10 + 2}`);
+      assert(route[20][0] === 59.1 && route[20][1] === 24.1, 'detour A coords at position 20');
+      assert(originalRoute.length === 100, 'originalRoute unchanged');
+
+      console.log('Test 3: add detour B at 50-60');
+      const dB = [[59.2, 24.2], [59.21, 24.21], [59.22, 24.22]];
+      addDetour(50, 60, dB);
+      assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
+      const expectedLen = 100 - 10 - 10 + dA.length + dB.length;
+      assert(route.length === expectedLen, `route.length=${route.length} should be ${expectedLen}`);
+
+      const foundA = route.some(p => p[0] === 59.1 && p[1] === 24.1);
+      const foundB = route.some(p => p[0] === 59.2 && p[1] === 24.2);
+      assert(foundA, 'detour A coords present in effectiveRoute');
+      assert(foundB, 'detour B coords present in effectiveRoute');
+
+      console.log('Test 4: add detour C at 70-80');
+      const dC = [[59.3, 24.3]];
+      addDetour(70, 80, dC);
+      assert(detours.length === 3, `detours.length=${detours.length} should be 3`);
+      const expectedLen2 = 100 - 10 - 10 - 10 + dA.length + dB.length + dC.length;
+      assert(route.length === expectedLen2, `route.length=${route.length} should be ${expectedLen2}`);
+
+      const foundC = route.some(p => p[0] === 59.3 && p[1] === 24.3);
+      assert(foundA && foundB && foundC, 'all three detours present');
+      assert(originalRoute.length === 100, 'originalRoute still unchanged');
+
+      console.log('Test 5: isInDetourRange');
+      assert(isInDetourRange(25), 'idx 25 is in detour range');
+      assert(!isInDetourRange(35), 'idx 35 is NOT in detour range');
+      assert(isInDetourRange(55), 'idx 55 is in detour range');
+      assert(!isInDetourRange(65), 'idx 65 is NOT in detour range');
+
+      originalRoute.length = 0;
+      saved.orig.forEach(p => originalRoute.push(p));
+      detours.length = 0;
+      saved.det.forEach(d => detours.push(d));
+      if (saved.det.length > 0) buildEffectiveRoute();
+      else { route = saved.r; routeLine.setLatLngs(route); totalDistVar = routeLength(route); }
+
+      console.log(`\nResults: ${pass} passed, ${fail} failed`);
+      return fail === 0;
+    };
   </script>
 </body>
 </html>
