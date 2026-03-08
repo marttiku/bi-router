@@ -30,7 +30,6 @@ let routePolyline = null;
 let routeCoordinates = [];
 let stravaLayer = null;
 let authenticated = false;
-let cfParams = '';
 let bikeRoadsLayer = null;
 let bikeRoadsData = null;
 let gpsMarker = null;
@@ -60,7 +59,6 @@ async function checkAuth() {
   authenticated = result.authenticated;
 
   if (result.authenticated) {
-    cfParams = `Key-Pair-Id=${encodeURIComponent(result.keyPairId)}&Policy=${encodeURIComponent(result.policy)}&Signature=${encodeURIComponent(result.signature)}`;
     el.className = 'auth-badge connected';
     text.textContent = 'Connected to Strava';
     initHeatmap();
@@ -84,9 +82,9 @@ function getTileUrl() {
   const color = document.getElementById('color-select').value;
 
   if (authenticated) {
-    return `https://heatmap-external-a.strava.com/tiles-auth/${activity}/${color}/{z}/{x}/{y}.png?${cfParams}`;
+    return `https://content-a.strava.com/identified/globalheat/${activity}/${color}/{z}/{x}/{y}.png?v=19`;
   }
-  return `https://heatmap-external-a.strava.com/tiles/${activity}/${color}/{z}/{x}/{y}.png?px=256`;
+  return `https://content-a.strava.com/identified/globalheat/${activity}/${color}/{z}/{x}/{y}.png?v=19`;
 }
 
 function initHeatmap() {
