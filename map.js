@@ -264,13 +264,21 @@ function updateWaypointList() {
   });
 }
 
-// ── Routing via OSRM ─────────────────────────────────────────────
-async function fetchRoute(profile, coords, signal) {
+// ── Routing via BRouter ──────────────────────────────────────────
+async function fetchRoute(profile, lonlatPairs, signal) {
   try {
-    const url = `https://router.project-osrm.org/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=false`;
+    const lonlats = lonlatPairs.map(([lng, lat]) => `${lng},${lat}`).join('|');
+    const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`;
     const resp = await fetch(url, { signal });
+    if (!resp.ok) return null;
     const data = await resp.json();
-    if (data.code === 'Ok' && data.routes?.[0]) return data.routes[0];
+    const feat = data.features?.[0];
+    if (!feat) return null;
+    return {
+      distance: parseFloat(feat.properties['track-length']),
+      duration: parseFloat(feat.properties['total-time']),
+      geometry: { coordinates: feat.geometry.coordinates.map(c => [c[0], c[1]]) }
+    };
   } catch (err) {
     if (err.name === 'AbortError') throw err;
   }
@@ -304,16 +312,14 @@ async function updateRoute() {
   routeAbort = controller;
   const signal = controller.signal;
 
-  const coords = waypoints
-    .map(w => {
-      const ll = w.marker.getLatLng();
-      return `${ll.lng},${ll.lat}`;
-    })
-    .join(';');
+  const lonlatPairs = waypoints.map(w => {
+    const ll = w.marker.getLatLng();
+    return [ll.lng, ll.lat];
+  });
 
   try {
-    const route = await fetchRoute('bicycle', coords, signal)
-      || await fetchRoute('foot', coords, signal);
+    const route = await fetchRoute('trekking', lonlatPairs, signal)
+      || await fetchRoute('hiking-mountain', lonlatPairs, signal);
 
     if (routeAbort !== controller) return;
 
@@ -323,7 +329,7 @@ async function updateRoute() {
       return;
     }
 
-    routeCoordinates = route.geometry.coordinates.map(c => [c[1], c[0]]);
+    routeCoordinates = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
 
     if (routePolyline) map.removeLayer(routePolyline);
     routePolyline = L.polyline(routeCoordinates, {
