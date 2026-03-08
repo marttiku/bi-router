@@ -11,8 +11,6 @@
     <span>Plan Route</span>`;
 
   btn.addEventListener('click', () => {
-    const mapUrl = chrome.runtime.getURL('map.html');
-
     const hash = window.location.hash;
     const params = new URLSearchParams(window.location.search);
     const sport = params.get('sport') || 'ride';
@@ -31,7 +29,10 @@
     const sportMap = { RideLike: 'ride', RunLike: 'run', WaterLike: 'water', WinterLike: 'winter' };
     const mappedSport = sportMap[sport] || 'all';
 
-    window.open(`${mapUrl}#${zoom}/${lat}/${lng}?sport=${mappedSport}&color=${color}`, '_blank');
+    chrome.runtime.sendMessage({
+      type: 'openPlanner',
+      hash: `${zoom}/${lat}/${lng}?sport=${mappedSport}&color=${color}`
+    });
   });
 
   document.body.appendChild(btn);

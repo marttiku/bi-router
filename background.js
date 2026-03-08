@@ -3,6 +3,12 @@ chrome.action.onClicked.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'openPlanner') {
+    const url = chrome.runtime.getURL('map.html') + '#' + (message.hash || '');
+    chrome.tabs.create({ url });
+    return;
+  }
+
   if (message.type === 'getStravaCookies') {
     chrome.cookies.getAll({ domain: '.strava.com' }).then(cookies => {
       const cf = {};
