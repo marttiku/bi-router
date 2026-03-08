@@ -1,0 +1,34 @@
+Plan cycling and walking routes using Strava's global heatmap. See where people actually ride and run, then plan your own route and navigate it on your phone.
+
+FEATURES
+
+• Strava heatmap overlay — see popular cycling, running, water, and winter sport routes with adjustable color and opacity
+• Click-to-route planning — add waypoints by clicking the map; routes auto-calculate via BRouter
+• Tallinn bicycle roads — toggle official city bike infrastructure data
+• GPX export — download your route for any GPS device or app
+• Google Maps integration — open your route in Google Maps with one click
+• Mobile navigation via QR code — scan to open a GPS-tracked navigation page on your phone, no app needed
+• Route stats — live distance and estimated time with adjustable speed
+
+HOW IT WORKS
+
+1. Log into Strava and visit the global heatmap page
+2. Click the "Plan Route" button (or click the extension icon anytime)
+3. Click the map to add waypoints — the route calculates automatically
+4. Export as GPX, open in Google Maps, or tap "Send to Phone" and scan the QR code
+
+MOBILE NAVIGATION
+
+The QR code opens a lightweight navigation page directly in your phone's browser. No app install, no file downloads. You get:
+• Live GPS position on the map
+• Distance remaining and ETA
+• Direction compass
+• Screen wake lock
+
+Works best in Tallinn and surrounding areas with the bike roads layer, but route planning works worldwide wherever Strava has heatmap data.
+
+PERMISSIONS
+
+• Cookies — reads Strava session cookies to authenticate heatmap tile requests
+• DeclarativeNetRequest — attaches auth headers to heatmap tile requests
+• Host permissions for strava.com and gis.tallinn.ee
