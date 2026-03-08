@@ -318,20 +318,34 @@ async function updateRoute() {
 }
 
 // ── Stats ────────────────────────────────────────────────────────
+let lastRouteDistanceKm = 0;
+
 function updateStats(route) {
   const distEl = document.getElementById('route-distance');
   const durEl = document.getElementById('route-duration');
 
   if (!route) {
+    lastRouteDistanceKm = 0;
     distEl.textContent = '—';
     durEl.textContent = '—';
     return;
   }
 
-  const km = route.distance / 1000;
-  distEl.textContent = km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+  lastRouteDistanceKm = route.distance / 1000;
+  distEl.textContent = lastRouteDistanceKm < 10
+    ? `${lastRouteDistanceKm.toFixed(1)} km`
+    : `${Math.round(lastRouteDistanceKm)} km`;
 
-  const mins = Math.round(route.duration / 60);
+  updateDuration();
+}
+
+function updateDuration() {
+  const durEl = document.getElementById('route-duration');
+  if (lastRouteDistanceKm === 0) { durEl.textContent = '—'; return; }
+
+  const speedKmh = parseInt(document.getElementById('speed-slider').value);
+  const mins = Math.round((lastRouteDistanceKm / speedKmh) * 60);
+
   if (mins < 60) {
     durEl.textContent = `${mins} min`;
   } else {
@@ -507,6 +521,11 @@ document.getElementById('opacity-slider').addEventListener('input', (e) => {
   const val = e.target.value;
   document.getElementById('opacity-value').textContent = `${val}%`;
   if (stravaLayer) stravaLayer.setOpacity(val / 100);
+});
+
+document.getElementById('speed-slider').addEventListener('input', (e) => {
+  document.getElementById('speed-value').textContent = `${e.target.value} km/h`;
+  updateDuration();
 });
 
 // ── Action Buttons ───────────────────────────────────────────────
