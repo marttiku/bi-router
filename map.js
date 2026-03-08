@@ -251,6 +251,18 @@ function updateWaypointList() {
 }
 
 // ── Routing via OSRM ─────────────────────────────────────────────
+async function fetchRoute(profile, coords, signal) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=false`;
+    const resp = await fetch(url, { signal });
+    const data = await resp.json();
+    if (data.code === 'Ok' && data.routes?.[0]) return data.routes[0];
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+  }
+  return null;
+}
+
 let routeAbort = null;
 
 async function updateRoute() {
@@ -277,17 +289,15 @@ async function updateRoute() {
     .join(';');
 
   try {
-    const url = `https://router.project-osrm.org/route/v1/bicycle/${coords}?overview=full&geometries=geojson&steps=false`;
-    const resp = await fetch(url, { signal: routeAbort.signal });
-    const data = await resp.json();
+    const route = await fetchRoute('bicycle', coords, routeAbort.signal)
+      || await fetchRoute('foot', coords, routeAbort.signal);
 
-    if (data.code !== 'Ok' || !data.routes?.[0]) {
+    if (!route) {
       showToast('Could not calculate route. Try adjusting waypoints.', 'error');
       updateStats(null);
       return;
     }
 
-    const route = data.routes[0];
     routeCoordinates = route.geometry.coordinates.map(c => [c[1], c[0]]);
 
     routePolyline = L.polyline(routeCoordinates, {
