@@ -229,6 +229,17 @@
     }
     .opp-card .opp-btn:active { background: rgba(0,0,0,0.3); }
 
+    .walk-marker {
+      background: #ef5350;
+      color: #fff;
+      padding: 3px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    }
+
     .leaflet-tile-pane { filter: brightness(0.85) saturate(0.8); }
 
     .leaflet-map-pane {
@@ -770,46 +781,80 @@
     let lastScanTime = 0;
     const oppStrip = document.getElementById('opp-strip');
     const tempMarkers = [];
+    const dismissedOppKeys = new Set();
+    const oppRouteCache = new Map();
+    const MAX_DETOUR_EXTRA_M = 500;
+
+    function findAdjacentUnvisited(key, z, rawSet, capturedSet, maxTiles) {
+      const cluster = [key];
+      const checked = new Set([key]);
+      const queue = [key];
+      while (queue.length > 0 && cluster.length < maxTiles) {
+        const cur = queue.shift();
+        const [cx, cy] = cur.split('-').map(Number);
+        for (const [dx, dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+          const nk = `${cx+dx}-${cy+dy}`;
+          if (checked.has(nk)) continue;
+          checked.add(nk);
+          if (!rawSet.has(nk) && !capturedSet.has(nk)) {
+            cluster.push(nk);
+            queue.push(nk);
+          }
+        }
+      }
+      return cluster;
+    }
+
+    function findRejoinIdx(fromIdx, minDistM) {
+      let acc = 0;
+      for (let i = fromIdx; i < route.length - 1; i++) {
+        acc += haversine(route[i], route[i + 1]);
+        if (acc >= minDistM) return Math.min(i + 1, route.length - 1);
+      }
+      return route.length - 1;
+    }
 
     function scanOpportunities(snapIdx) {
       if (!sqSet14 && !sqSet17) return;
-      const opps = [];
-      const lookAheadM = 1500;
-      let accum = 0;
+      const redOpps = [];
+      const yellowCandidates = [];
 
       function scanZoom(z, rawSet, capturedSet, label) {
         const seen = new Set();
         let acc = 0;
-        for (let i = snapIdx; i < route.length - 1 && acc < lookAheadM; i++) {
+        for (let i = snapIdx; i < route.length - 1 && acc < 1500; i++) {
           acc += haversine(route[i], route[i + 1]);
           const tx = lon2tile(route[i][1], z);
           const ty = lat2tile(route[i][0], z);
           for (let dx = -1; dx <= 1; dx++)
             for (let dy = -1; dy <= 1; dy++) {
               const key = `${tx + dx}-${ty + dy}`;
-              if (seen.has(key) || rawSet.has(key) || capturedSet.has(key)) continue;
+              if (seen.has(key) || rawSet.has(key) || capturedSet.has(key) || dismissedOppKeys.has(key)) continue;
               seen.add(key);
-              const center = tileCenter(key, z);
               const borderDist = tileBorderDistToPoint(key, z, route[i]);
 
-              let closestRoutePt = route[i];
               let closestRouteIdx = i;
               let minRouteDist = Infinity;
               const searchEnd = Math.min(i + 50, route.length);
               for (let j = i; j < searchEnd; j++) {
-                const d = haversine(center, route[j]);
-                if (d < minRouteDist) { minRouteDist = d; closestRoutePt = route[j]; closestRouteIdx = j; }
+                const d = haversine(tileCenter(key, z), route[j]);
+                if (d < minRouteDist) { minRouteDist = d; closestRouteIdx = j; }
               }
 
-              if (borderDist <= 100) {
-                opps.push({ type: 'red', key, tiles: 1, dist: Math.round(borderDist),
-                  label: `~${Math.round(borderDist)}m +1 ${label}`, borderPt: nearestBorderPoint(key, z, closestRoutePt),
-                  routeIdx: closestRouteIdx });
-              } else if (minRouteDist < 500) {
-                const estDetour = Math.round(2 * minRouteDist * 1.4);
-                opps.push({ type: 'yellow', key, tiles: 1, dist: estDetour,
-                  label: `+${estDetour}m +1 ${label}`, center, routeIdx: closestRouteIdx,
-                  rejoinIdx: Math.min(closestRouteIdx + 5, route.length - 1) });
+              if (borderDist <= 20) {
+                redOpps.push({ type: 'red', key, z, tiles: 1, dist: Math.round(borderDist),
+                  label: `🚶 ${Math.round(borderDist)}m +1 ${label}`,
+                  borderPt: nearestBorderPoint(key, z, route[closestRouteIdx]),
+                  routeIdx: closestRouteIdx, tileLabel: label });
+              } else if (minRouteDist < 800) {
+                const cluster = findAdjacentUnvisited(key, z, rawSet, capturedSet, 4);
+                const viaPoints = cluster.map(k => tileCenter(k, z));
+                const rejoinIdx = findRejoinIdx(closestRouteIdx, Math.max(300, minRouteDist * 2));
+                yellowCandidates.push({ type: 'yellow', key, z, keys: cluster, tiles: cluster.length,
+                  dist: Math.round(2 * minRouteDist * 1.4),
+                  label: `+${Math.round(2 * minRouteDist * 1.4)}m +${cluster.length} ${label}`,
+                  viaPoints, routeIdx: closestRouteIdx,
+                  rejoinIdx, tileLabel: label, rawSet, capturedSet });
               }
             }
         }
@@ -818,39 +863,65 @@
       if (sqSet14) scanZoom(SQ_Z, sqSet14, capturedSet14, 'SQ');
       if (sqSet17) scanZoom(SQINHO_Z, sqSet17, capturedSet17, 'inho');
 
-      clusterOpportunities(opps);
-      opportunities = opps
+      const validatedYellows = [];
+      const toValidate = [];
+
+      for (const opp of yellowCandidates) {
+        const cached = oppRouteCache.get(opp.key);
+        if (cached?.status === 'ok') {
+          opp.cachedRoute = cached.route;
+          opp.dist = Math.round(cached.extraDist);
+          opp.tiles = cached.tiles;
+          opp.label = `+${opp.dist}m +${opp.tiles} ${opp.tileLabel}`;
+          validatedYellows.push(opp);
+        } else if (cached?.status === 'failed') {
+          continue;
+        } else if (!cached) {
+          toValidate.push(opp);
+        }
+      }
+
+      opportunities = [...redOpps, ...validatedYellows]
         .sort((a, b) => {
           if (a.type !== b.type) return a.type === 'red' ? -1 : 1;
           return (b.tiles / Math.max(b.dist, 1)) - (a.tiles / Math.max(a.dist, 1));
         })
         .slice(0, 5);
       renderOppCards();
+
+      for (const opp of toValidate) {
+        oppRouteCache.set(opp.key, { status: 'pending' });
+        validateYellowOpp(opp, snapIdx);
+      }
     }
 
-    function clusterOpportunities(opps) {
-      for (let i = 0; i < opps.length; i++) {
-        if (opps[i]._merged) continue;
-        for (let j = i + 1; j < opps.length; j++) {
-          if (opps[j]._merged || opps[i].type !== opps[j].type) continue;
-          const ci = opps[i].center || opps[i].borderPt;
-          const cj = opps[j].center || opps[j].borderPt;
-          if (ci && cj && haversine(ci, cj) < 400) {
-            opps[i].tiles += opps[j].tiles;
-            opps[i].dist = Math.max(opps[i].dist, opps[j].dist);
-            const suffix = opps[i].tiles > 1 ? 'SQs' : 'SQ';
-            if (opps[i].type === 'red') {
-              opps[i].label = `~${opps[i].dist}m +${opps[i].tiles} ${suffix}`;
-            } else {
-              opps[i].label = `+${opps[i].dist}m +${opps[i].tiles} ${suffix}`;
-            }
-            opps[j]._merged = true;
-          }
-        }
+    async function validateYellowOpp(opp, snapIdx) {
+      const from = route[opp.routeIdx];
+      const to = route[opp.rejoinIdx];
+      const waypoints = [from, ...opp.viaPoints, to];
+
+      const detour = await fetchDetourRoute(waypoints);
+      if (!detour) {
+        oppRouteCache.set(opp.key, { status: 'failed' });
+        return;
       }
-      for (let i = opps.length - 1; i >= 0; i--) {
-        if (opps[i]._merged) opps.splice(i, 1);
+
+      const directDist = routeLength(route.slice(opp.routeIdx, opp.rejoinIdx + 1));
+      const extraDist = detour.distance - directDist;
+
+      if (extraDist > MAX_DETOUR_EXTRA_M) {
+        oppRouteCache.set(opp.key, { status: 'failed' });
+        return;
       }
+
+      oppRouteCache.set(opp.key, {
+        status: 'ok',
+        route: detour,
+        extraDist: Math.max(0, extraDist),
+        tiles: opp.tiles,
+        routeIdx: opp.routeIdx,
+        rejoinIdx: opp.rejoinIdx,
+      });
     }
 
     /* ── Opportunity card rendering ───────────── */
@@ -864,7 +935,7 @@
         card.appendChild(label);
         const btn = document.createElement('button');
         btn.className = 'opp-btn';
-        btn.textContent = opp.type === 'yellow' ? 'Capture' : 'OK';
+        btn.textContent = opp.type === 'red' ? 'Walk' : 'Capture';
         btn.addEventListener('click', (e) => { e.stopPropagation(); handleOppTap(opp); });
         card.appendChild(btn);
         oppStrip.appendChild(card);
@@ -872,8 +943,8 @@
     }
 
     /* ── BRouter detour fetch ─────────────────── */
-    async function fetchDetourRoute(from, via, to) {
-      const lonlats = `${from[1]},${from[0]}|${via[1]},${via[0]}|${to[1]},${to[0]}`;
+    async function fetchDetourRoute(waypoints) {
+      const lonlats = waypoints.map(p => `${p[1]},${p[0]}`).join('|');
       const profiles = ['trekking', 'hiking-mountain'];
       for (const profile of profiles) {
         try {
@@ -891,42 +962,45 @@
 
     /* ── Handle opportunity tap ────────────────── */
     async function handleOppTap(opp) {
-      const idx = opportunities.indexOf(opp);
-      if (idx === -1) return;
+      const idx = opportunities.findIndex(o => o.key === opp.key);
+      if (idx === -1) { opportunities = opportunities.filter(o => o.key !== opp.key); renderOppCards(); return; }
 
       if (opp.type === 'red') {
         if (opp.borderPt) {
+          const dist = opp.dist;
           const marker = L.marker(opp.borderPt, {
-            icon: L.divIcon({ className: '', html: '<div style="font-size:18px">🔴</div>', iconSize: [20, 20], iconAnchor: [10, 10] }),
+            icon: L.divIcon({
+              className: '',
+              html: `<div class="walk-marker">🚶 ${dist}m</div>`,
+              iconSize: [60, 20], iconAnchor: [30, 10],
+            }),
+            zIndexOffset: 800,
           }).addTo(map);
           tempMarkers.push(marker);
-          setTimeout(() => { map.removeLayer(marker); const mi = tempMarkers.indexOf(marker); if (mi !== -1) tempMarkers.splice(mi, 1); }, 60000);
         }
+        dismissedOppKeys.add(opp.key);
         opportunities.splice(idx, 1);
         renderOppCards();
         return;
       }
 
-      const card = oppStrip.children[idx];
-      if (card) card.querySelector('.opp-btn').textContent = '…';
-
-      const currentPos = gpsDot.getLatLng();
-      const from = [currentPos.lat, currentPos.lng];
-      const via = opp.center;
-      const to = route[opp.rejoinIdx];
-      const detour = await fetchDetourRoute(from, via, to);
-
-      if (!detour) {
-        if (card) card.querySelector('.opp-btn').textContent = '✗';
-        setTimeout(() => { opportunities.splice(idx, 1); renderOppCards(); }, 1500);
+      const cached = oppRouteCache.get(opp.key);
+      if (!cached || cached.status !== 'ok') {
+        opportunities.splice(idx, 1);
+        renderOppCards();
         return;
       }
 
-      const snap = snapToRoute(from, route);
-      route.splice(snap.index, opp.rejoinIdx - snap.index, ...detour.coords);
+      const currentPos = gpsDot.getLatLng();
+      const snap = snapToRoute([currentPos.lat, currentPos.lng], route);
+      route.splice(snap.index, cached.rejoinIdx - snap.index, ...cached.route.coords);
       routeLine.setLatLngs(route);
       totalDistVar = routeLength(route);
 
+      if (opp.keys) opp.keys.forEach(k => dismissedOppKeys.add(k));
+      else dismissedOppKeys.add(opp.key);
+
+      oppRouteCache.clear();
       opportunities.splice(idx, 1);
       renderOppCards();
     }
@@ -969,13 +1043,13 @@
               const borderDist = tileBorderDistToPoint(key, z, route[i]);
 
               let type = null;
-              if (borderDist <= 100) type = 'red';
+              if (borderDist <= 20) type = 'red';
               else if (borderDist < 800) type = 'yellow';
               if (!type) continue;
 
               const center = tileCenter(key, z);
               const cls = type === 'red' ? 'opp-marker-red' : 'opp-marker-yellow';
-              const dist = type === 'red' ? `~${Math.round(borderDist)}m` : `~${Math.round(2 * borderDist * 1.4)}m detour`;
+              const dist = type === 'red' ? `🚶 ${Math.round(borderDist)}m` : `~${Math.round(2 * borderDist * 1.4)}m detour`;
               const marker = L.marker(center, {
                 icon: L.divIcon({ className: '', html: `<div class="${cls}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] }),
                 zIndexOffset: 500,
