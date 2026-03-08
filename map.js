@@ -96,6 +96,15 @@ function initHeatmap() {
 }
 
 // ── Waypoint Management ──────────────────────────────────────────
+function createStartIcon() {
+  return L.divIcon({
+    className: 'waypoint-icon',
+    html: '<div class="start-marker">▶</div>',
+    iconSize: [32, 32],
+    iconAnchor: [16, 16]
+  });
+}
+
 function createNumberedIcon(number) {
   return L.divIcon({
     className: 'waypoint-icon',
@@ -107,15 +116,16 @@ function createNumberedIcon(number) {
 
 function renumberWaypoints() {
   waypoints.forEach((wp, i) => {
-    wp.marker.setIcon(createNumberedIcon(i + 1));
+    wp.marker.setIcon(i === 0 ? createStartIcon() : createNumberedIcon(i));
   });
 }
 
 function addWaypoint(latlng) {
   const id = Date.now() + Math.random();
+  const icon = waypoints.length === 0 ? createStartIcon() : createNumberedIcon(waypoints.length);
   const marker = L.marker(latlng, {
     draggable: true,
-    icon: createNumberedIcon(waypoints.length + 1)
+    icon
   }).addTo(map);
 
   marker.on('dragend', () => updateRoute());
@@ -162,6 +172,54 @@ function undoLastWaypoint() {
   removeWaypoint(last.id);
 }
 
+function returnToStart() {
+  if (waypoints.length < 2) return;
+  const startLatLng = waypoints[0].marker.getLatLng();
+  addWaypoint(L.latLng(startLatLng.lat, startLatLng.lng));
+}
+
+function startFromCurrentLocation() {
+  if (!navigator.geolocation) {
+    showToast('Geolocation is not supported by your browser.', 'error');
+    return;
+  }
+
+  showToast('Getting your location…', 'info');
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+
+      if (waypoints.length === 0) {
+        addWaypoint(latlng);
+      } else {
+        const id = Date.now() + Math.random();
+        const icon = createStartIcon();
+        const marker = L.marker(latlng, { draggable: true, icon }).addTo(map);
+
+        marker.on('dragend', () => updateRoute());
+        marker.on('contextmenu', (e) => {
+          L.DomEvent.stopPropagation(e);
+          removeWaypoint(id);
+        });
+
+        waypoints.unshift({ id, marker });
+        renumberWaypoints();
+        updateWaypointList();
+        updateRoute();
+        updateButtons();
+      }
+
+      map.setView(latlng, Math.max(map.getZoom(), 13));
+      showToast('Start set to your current location.', 'success');
+    },
+    (err) => {
+      showToast(`Could not get location: ${err.message}`, 'error');
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
 // ── Waypoint List UI ─────────────────────────────────────────────
 function updateWaypointList() {
   const container = document.getElementById('waypoint-list');
@@ -173,9 +231,12 @@ function updateWaypointList() {
 
   container.innerHTML = waypoints.map((wp, i) => {
     const ll = wp.marker.getLatLng();
+    const isStart = i === 0;
+    const label = isStart ? '▶' : i;
+    const cls = isStart ? 'waypoint-number start' : 'waypoint-number';
     return `
       <div class="waypoint-item" data-id="${wp.id}">
-        <span class="waypoint-number">${i + 1}</span>
+        <span class="${cls}">${label}</span>
         <span class="waypoint-coords">${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}</span>
         <button class="waypoint-remove" title="Remove waypoint">&times;</button>
       </div>`;
@@ -274,6 +335,7 @@ function updateStats(route) {
 function updateButtons() {
   document.getElementById('btn-undo').disabled = waypoints.length === 0;
   document.getElementById('btn-clear').disabled = waypoints.length === 0;
+  document.getElementById('btn-return-start').disabled = waypoints.length < 2;
   document.getElementById('btn-export').disabled = routeCoordinates.length === 0;
 }
 
@@ -343,6 +405,8 @@ document.getElementById('opacity-slider').addEventListener('input', (e) => {
 // ── Action Buttons ───────────────────────────────────────────────
 document.getElementById('btn-undo').addEventListener('click', undoLastWaypoint);
 document.getElementById('btn-clear').addEventListener('click', clearAllWaypoints);
+document.getElementById('btn-return-start').addEventListener('click', returnToStart);
+document.getElementById('btn-start-here').addEventListener('click', startFromCurrentLocation);
 document.getElementById('btn-export').addEventListener('click', exportGPX);
 
 // ── Map Click ────────────────────────────────────────────────────
