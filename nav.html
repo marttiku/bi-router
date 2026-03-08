@@ -1011,8 +1011,14 @@
 
     /* ── Handle opportunity tap ────────────────── */
     async function handleOppTap(opp) {
+      console.log(`[opp] Tap: ${opp.key}, type=${opp.type}`);
       const idx = opportunities.findIndex(o => o.key === opp.key);
-      if (idx === -1) { opportunities = opportunities.filter(o => o.key !== opp.key); renderOppCards(); return; }
+      if (idx === -1) {
+        console.log(`[opp] Key ${opp.key} not found in opportunities, ignoring`);
+        opportunities = opportunities.filter(o => o.key !== opp.key);
+        renderOppCards();
+        return;
+      }
 
       if (opp.type === 'red') {
         if (opp.borderPt) {
@@ -1035,6 +1041,7 @@
 
       const cached = oppRouteCache.get(opp.key);
       if (!cached || cached.status !== 'ok') {
+        console.log(`[opp] Cache miss for ${opp.key}: ${cached ? cached.status : 'null'}`);
         opportunities.splice(idx, 1);
         renderOppCards();
         return;
@@ -1042,9 +1049,33 @@
 
       const currentPos = gpsDot.getLatLng();
       const snap = snapToRoute([currentPos.lat, currentPos.lng], route);
-      route.splice(snap.index, cached.rejoinIdx - snap.index, ...cached.route.coords);
-      routeLine.setLatLngs(route);
-      totalDistVar = routeLength(route);
+      const removeCount = cached.rejoinIdx - snap.index;
+      console.log(`[opp] Splicing route: snap=${snap.index}, rejoin=${cached.rejoinIdx}, remove=${removeCount}, insert=${cached.route.coords.length} pts`);
+
+      if (removeCount <= 0) {
+        console.log(`[opp] Invalid splice range, fetching live detour`);
+        const card = oppStrip.children[idx];
+        if (card) card.querySelector('.opp-btn').textContent = '…';
+
+        const from = [currentPos.lat, currentPos.lng];
+        const to = route[Math.min(snap.index + 30, route.length - 1)];
+        const via = opp.cachedRoute ? opp.viaPoints : [cached.route.coords[Math.floor(cached.route.coords.length / 2)]];
+        const detour = await fetchDetourRoute([from, ...via, to]);
+        if (detour) {
+          route.splice(snap.index, 30, ...detour.coords);
+          routeLine.setLatLngs(route);
+          totalDistVar = routeLength(route);
+        } else {
+          console.log(`[opp] Live detour also failed`);
+          if (card) card.querySelector('.opp-btn').textContent = '✗';
+          setTimeout(() => { opportunities.splice(idx, 1); renderOppCards(); }, 1500);
+          return;
+        }
+      } else {
+        route.splice(snap.index, removeCount, ...cached.route.coords);
+        routeLine.setLatLngs(route);
+        totalDistVar = routeLength(route);
+      }
 
       if (opp.keys) opp.keys.forEach(k => dismissedOppKeys.add(k));
       else dismissedOppKeys.add(opp.key);
