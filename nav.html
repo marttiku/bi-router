@@ -827,6 +827,7 @@
 
     function scanOpportunities(snapIdx) {
       if (!sqSet14 && !sqSet17) return;
+      lastScanSnapIdx = snapIdx;
       const redOpps = [];
       const yellowCandidates = [];
 
@@ -900,19 +901,27 @@
         .slice(0, 5);
       renderOppCards();
 
+      if (redOpps.length || validatedYellows.length || toValidate.length) {
+        console.log(`[opp] Scan at idx ${snapIdx}: ${redOpps.length} red, ${validatedYellows.length} validated yellow, ${toValidate.length} to validate`);
+      }
+
       for (const opp of toValidate) {
         oppRouteCache.set(opp.key, { status: 'pending' });
         validateYellowOpp(opp, snapIdx);
       }
     }
 
+    let lastScanSnapIdx = 0;
+
     async function validateYellowOpp(opp, snapIdx) {
       const from = route[opp.routeIdx];
       const to = route[opp.rejoinIdx];
       const waypoints = [from, ...opp.viaPoints, to];
 
+      console.log(`[opp] Validating yellow: ${opp.key} (${opp.tiles} tiles, via ${waypoints.length} pts)`);
       const detour = await fetchDetourRoute(waypoints);
       if (!detour) {
+        console.log(`[opp] Failed: ${opp.key} — no route found`);
         oppRouteCache.set(opp.key, { status: 'failed' });
         return;
       }
@@ -921,10 +930,12 @@
       const extraDist = detour.distance - directDist;
 
       if (extraDist > MAX_DETOUR_EXTRA_M) {
+        console.log(`[opp] Failed: ${opp.key} — extra ${Math.round(extraDist)}m > ${MAX_DETOUR_EXTRA_M}m`);
         oppRouteCache.set(opp.key, { status: 'failed' });
         return;
       }
 
+      console.log(`[opp] Validated: ${opp.key} — +${Math.round(extraDist)}m, ${opp.tiles} tiles`);
       oppRouteCache.set(opp.key, {
         status: 'ok',
         route: detour,
@@ -933,6 +944,8 @@
         routeIdx: opp.routeIdx,
         rejoinIdx: opp.rejoinIdx,
       });
+
+      scanOpportunities(lastScanSnapIdx);
     }
 
     /* ── Opportunity card rendering ───────────── */
