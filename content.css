@@ -1,0 +1,34 @@
+#strava-route-planner-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #fc4c02;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: background 0.15s, transform 0.1s;
+}
+
+#strava-route-planner-btn:hover {
+  background: #e04400;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+#strava-route-planner-btn:active {
+  transform: translateY(0);
+}
+
+#strava-route-planner-btn svg {
+  flex-shrink: 0;
+}

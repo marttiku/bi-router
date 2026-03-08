@@ -1,5 +1,28 @@
 /* global L, chrome */
 
+// ── URL Params (passed from Strava heatmap page) ─────────────────
+function parseHashParams() {
+  const defaults = { lat: 59.3212, lng: 24.6635, zoom: 11, sport: null, color: null };
+  const hash = window.location.hash.replace('#', '');
+  if (!hash) return defaults;
+
+  const [coordPart, queryPart] = hash.split('?');
+  const parts = coordPart.split('/');
+  if (parts.length >= 3) {
+    defaults.zoom = parseFloat(parts[0]) || defaults.zoom;
+    defaults.lat = parseFloat(parts[1]) || defaults.lat;
+    defaults.lng = parseFloat(parts[2]) || defaults.lng;
+  }
+  if (queryPart) {
+    const qs = new URLSearchParams(queryPart);
+    defaults.sport = qs.get('sport');
+    defaults.color = qs.get('color');
+  }
+  return defaults;
+}
+
+const initParams = parseHashParams();
+
 // ── State ────────────────────────────────────────────────────────
 let waypoints = [];
 let routePolyline = null;
@@ -8,7 +31,7 @@ let stravaLayer = null;
 let stravaAuth = null;
 
 // ── Map Setup ────────────────────────────────────────────────────
-const map = L.map('map', { zoomControl: true }).setView([59.3212, 24.6635], 11);
+const map = L.map('map', { zoomControl: true }).setView([initParams.lat, initParams.lng], Math.round(initParams.zoom));
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -322,4 +345,17 @@ document.getElementById('btn-export').addEventListener('click', exportGPX);
 map.on('click', (e) => addWaypoint(e.latlng));
 
 // ── Init ─────────────────────────────────────────────────────────
+if (initParams.sport) {
+  const sportSel = document.getElementById('sport-select');
+  if ([...sportSel.options].some(o => o.value === initParams.sport)) {
+    sportSel.value = initParams.sport;
+  }
+}
+if (initParams.color) {
+  const colorSel = document.getElementById('color-select');
+  if ([...colorSel.options].some(o => o.value === initParams.color)) {
+    colorSel.value = initParams.color;
+  }
+}
+
 checkAuth();
