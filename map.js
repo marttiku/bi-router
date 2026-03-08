@@ -699,7 +699,7 @@ let sqTileLayer = null;
 let sqNewLayer = null;
 let sqEnabled = false;
 let sqShowNew = true;
-let sqOpacity = 0.7;
+let sqOpacity = 0.12;
 
 function lon2tile(lng, zoom) {
   return Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
@@ -787,12 +787,12 @@ function createSqTileLayer() {
       const { canvas, ctx } = _makeCanvas(size);
       setTimeout(() => {
         if (sqRaw[14]) {
-          _drawUnvisited(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, sqRaw[14], '#2a1a3e', sqOpacity);
-          _drawUnvisitedBorders(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, sqRaw[14], '#663399', 1.5, 0.6);
+          _drawUnvisited(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, sqRaw[14], '#663399', sqOpacity);
+          _drawUnvisitedBorders(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, sqRaw[14], '#663399', 1, 0.25);
         }
         if (sqRaw[17]) {
-          _drawUnvisited(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, sqRaw[17], '#3e2a1a', sqOpacity * 0.6);
-          _drawUnvisitedBorders(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, sqRaw[17], '#996633', 1, 0.4);
+          _drawUnvisited(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, sqRaw[17], '#996633', sqOpacity * 0.7);
+          _drawUnvisitedBorders(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, sqRaw[17], '#996633', 0.5, 0.2);
         }
         done(null, canvas);
       }, 0);
