@@ -129,7 +129,7 @@ function addWaypoint(latlng) {
     icon
   }).addTo(map);
 
-  marker.on('dragend', () => updateRoute());
+  marker.on('dragend', () => scheduleRoute());
 
   marker.on('click', (e) => {
     if (deleteMode) {
@@ -145,7 +145,7 @@ function addWaypoint(latlng) {
 
   waypoints.push({ id, marker });
   updateWaypointList();
-  updateRoute();
+  scheduleRoute();
   updateButtons();
 }
 
@@ -157,7 +157,7 @@ function removeWaypoint(id) {
   waypoints.splice(idx, 1);
   renumberWaypoints();
   updateWaypointList();
-  updateRoute();
+  scheduleRoute();
   updateButtons();
 }
 
@@ -205,7 +205,7 @@ function startFromCurrentLocation() {
         const icon = createStartIcon();
         const marker = L.marker(latlng, { draggable: true, icon }).addTo(map);
 
-        marker.on('dragend', () => updateRoute());
+        marker.on('dragend', () => scheduleRoute());
         marker.on('click', (e) => {
           if (deleteMode) {
             L.DomEvent.stopPropagation(e);
@@ -220,7 +220,7 @@ function startFromCurrentLocation() {
         waypoints.unshift({ id, marker });
         renumberWaypoints();
         updateWaypointList();
-        updateRoute();
+        scheduleRoute();
         updateButtons();
       }
 
@@ -278,10 +278,10 @@ async function fetchRoute(profile, coords, signal) {
 }
 
 let routeAbort = null;
+let routeDebounce = null;
 
-async function updateRoute() {
-  if (routeAbort) routeAbort.abort();
-
+function scheduleRoute() {
+  clearTimeout(routeDebounce);
   if (routePolyline) {
     map.removeLayer(routePolyline);
     routePolyline = null;
@@ -290,10 +290,19 @@ async function updateRoute() {
 
   if (waypoints.length < 2) {
     updateStats(null);
+    updateButtons();
     return;
   }
 
-  routeAbort = new AbortController();
+  routeDebounce = setTimeout(() => updateRoute(), 300);
+}
+
+async function updateRoute() {
+  if (routeAbort) routeAbort.abort();
+
+  const controller = new AbortController();
+  routeAbort = controller;
+  const signal = controller.signal;
 
   const coords = waypoints
     .map(w => {
@@ -303,8 +312,10 @@ async function updateRoute() {
     .join(';');
 
   try {
-    const route = await fetchRoute('bicycle', coords, routeAbort.signal)
-      || await fetchRoute('foot', coords, routeAbort.signal);
+    const route = await fetchRoute('bicycle', coords, signal)
+      || await fetchRoute('foot', coords, signal);
+
+    if (routeAbort !== controller) return;
 
     if (!route) {
       showToast('Could not calculate route. Try adjusting waypoints.', 'error');
@@ -314,6 +325,7 @@ async function updateRoute() {
 
     routeCoordinates = route.geometry.coordinates.map(c => [c[1], c[0]]);
 
+    if (routePolyline) map.removeLayer(routePolyline);
     routePolyline = L.polyline(routeCoordinates, {
       color: '#fc4c02',
       weight: 4,
