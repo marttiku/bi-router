@@ -1155,14 +1155,27 @@
       const card = oppStrip.children[idx];
       if (card) card.querySelector('.opp-btn').textContent = '…';
 
-      const departSnap = snapToRoute(curPt, originalRoute);
-      let departIdx = departSnap.index;
-
       let activeDetour = null;
+      let bestDetourDist = Infinity;
       for (const d of detours) {
-        if (departIdx >= d.departIdx && departIdx < d.rejoinIdx) {
+        const s = snapToRoute(curPt, d.coords);
+        if (s.distance < bestDetourDist) {
+          bestDetourDist = s.distance;
           activeDetour = d;
-          departIdx = d.rejoinIdx;
+        }
+      }
+      const origSnap = snapToRoute(curPt, originalRoute);
+      let departIdx;
+      if (activeDetour && bestDetourDist <= origSnap.distance) {
+        departIdx = activeDetour.rejoinIdx;
+      } else {
+        activeDetour = null;
+        departIdx = origSnap.index;
+        for (const d of detours) {
+          if (departIdx >= d.departIdx && departIdx < d.rejoinIdx) {
+            activeDetour = d;
+            departIdx = d.rejoinIdx;
+          }
         }
       }
       const rejoinIdx = Math.max(cached.rejoinIdx, departIdx + 1);
@@ -1699,66 +1712,149 @@
     }
 
     window.testDetourSystem = function() {
-      const saved = { orig: originalRoute, det: detours, r: route };
       let pass = 0, fail = 0;
       function assert(cond, msg) {
         if (cond) { pass++; console.log(`  ✓ ${msg}`); }
         else { fail++; console.error(`  ✗ ${msg}`); }
       }
 
-      const synth = [];
-      for (let i = 0; i < 100; i++) synth.push([59.0 + i * 0.001, 24.0 + i * 0.001]);
-      originalRoute.length = 0;
-      synth.forEach(p => originalRoute.push(p));
-      detours.length = 0;
+      function setup() {
+        originalRoute.length = 0;
+        for (let i = 0; i < 100; i++) originalRoute.push([59.0 + i * 0.001, 24.0 + i * 0.001]);
+        detours.length = 0;
+        buildEffectiveRoute();
+      }
+      function hasCoord(lat, lng) { return route.some(p => p[0] === lat && p[1] === lng); }
 
+      /* ── Test 1: no detours ── */
       console.log('Test 1: buildEffectiveRoute with no detours');
-      buildEffectiveRoute();
+      setup();
       assert(route.length === 100, `route.length=${route.length} should be 100`);
 
+      /* ── Test 2: single detour ── */
       console.log('Test 2: single detour A at 20-30');
-      const dA = [[59.1, 24.1], [59.11, 24.11]];
-      addDetour(20, 30, dA);
+      setup();
+      addDetour(20, 30, [[59.1, 24.1], [59.11, 24.11]]);
       assert(detours.length === 1, `detours.length=${detours.length} should be 1`);
-      assert(route.length === 100 - (30 - 20) + dA.length, `route.length=${route.length} should be ${100 - 10 + 2}`);
-      assert(route[20][0] === 59.1 && route[20][1] === 24.1, 'detour A coords at position 20');
+      assert(route.length === 92, `route.length=${route.length} should be 92`);
+      assert(hasCoord(59.1, 24.1), 'detour A first coord present');
       assert(originalRoute.length === 100, 'originalRoute unchanged');
 
-      console.log('Test 3: add detour B at 50-60');
-      const dB = [[59.2, 24.2], [59.21, 24.21], [59.22, 24.22]];
-      addDetour(50, 60, dB);
+      /* ── Test 3: two non-overlapping detours ── */
+      console.log('Test 3: two non-overlapping detours');
+      setup();
+      addDetour(20, 30, [[59.1, 24.1], [59.11, 24.11]]);
+      addDetour(50, 60, [[59.2, 24.2], [59.21, 24.21], [59.22, 24.22]]);
       assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
-      const expectedLen = 100 - 10 - 10 + dA.length + dB.length;
-      assert(route.length === expectedLen, `route.length=${route.length} should be ${expectedLen}`);
+      assert(route.length === 85, `route.length=${route.length} should be 85`);
+      assert(hasCoord(59.1, 24.1), 'detour A present');
+      assert(hasCoord(59.2, 24.2), 'detour B present');
 
-      const foundA = route.some(p => p[0] === 59.1 && p[1] === 24.1);
-      const foundB = route.some(p => p[0] === 59.2 && p[1] === 24.2);
-      assert(foundA, 'detour A coords present in effectiveRoute');
-      assert(foundB, 'detour B coords present in effectiveRoute');
-
-      console.log('Test 4: add detour C at 70-80');
-      const dC = [[59.3, 24.3]];
-      addDetour(70, 80, dC);
+      /* ── Test 4: three non-overlapping detours ── */
+      console.log('Test 4: three non-overlapping detours');
+      setup();
+      addDetour(20, 30, [[59.1, 24.1]]);
+      addDetour(50, 60, [[59.2, 24.2]]);
+      addDetour(70, 80, [[59.3, 24.3]]);
       assert(detours.length === 3, `detours.length=${detours.length} should be 3`);
-      const expectedLen2 = 100 - 10 - 10 - 10 + dA.length + dB.length + dC.length;
-      assert(route.length === expectedLen2, `route.length=${route.length} should be ${expectedLen2}`);
+      assert(hasCoord(59.1, 24.1) && hasCoord(59.2, 24.2) && hasCoord(59.3, 24.3), 'all 3 detours present');
+      assert(originalRoute.length === 100, 'originalRoute unchanged');
 
-      const foundC = route.some(p => p[0] === 59.3 && p[1] === 24.3);
-      assert(foundA && foundB && foundC, 'all three detours present');
-      assert(originalRoute.length === 100, 'originalRoute still unchanged');
-
+      /* ── Test 5: isInDetourRange ── */
       console.log('Test 5: isInDetourRange');
-      assert(isInDetourRange(25), 'idx 25 is in detour range');
-      assert(!isInDetourRange(35), 'idx 35 is NOT in detour range');
-      assert(isInDetourRange(55), 'idx 55 is in detour range');
-      assert(!isInDetourRange(65), 'idx 65 is NOT in detour range');
+      assert(isInDetourRange(25), 'idx 25 in range');
+      assert(!isInDetourRange(35), 'idx 35 not in range');
+      assert(isInDetourRange(55), 'idx 55 in range');
+      assert(!isInDetourRange(65), 'idx 65 not in range');
 
-      originalRoute.length = 0;
-      saved.orig.forEach(p => originalRoute.push(p));
-      detours.length = 0;
-      saved.det.forEach(d => detours.push(d));
-      if (saved.det.length > 0) buildEffectiveRoute();
-      else { route = saved.r; routeLine.setLatLngs(route); totalDistVar = routeLength(route); }
+      /* ── Test 6: capture B while inside detour A (the critical bug test) ── */
+      console.log('Test 6: capture B while inside detour A');
+      setup();
+      const dAcoords = [];
+      for (let i = 0; i < 10; i++) dAcoords.push([59.5 + i * 0.001, 24.5 + i * 0.001]);
+      addDetour(20, 30, dAcoords);
+      assert(detours.length === 1, 'detour A added');
+      assert(hasCoord(59.5, 24.5), 'detour A first coord present before capture B');
+
+      const curPt = dAcoords[5];
+      let activeDetour = null;
+      let bestDetourDist = Infinity;
+      for (const d of detours) {
+        const s = snapToRoute(curPt, d.coords);
+        if (s.distance < bestDetourDist) { bestDetourDist = s.distance; activeDetour = d; }
+      }
+      const origSnap = snapToRoute(curPt, originalRoute);
+      let departIdx;
+      if (activeDetour && bestDetourDist <= origSnap.distance) {
+        departIdx = activeDetour.rejoinIdx;
+      } else {
+        activeDetour = null;
+        departIdx = origSnap.index;
+        for (const d of detours) {
+          if (departIdx >= d.departIdx && departIdx < d.rejoinIdx) {
+            activeDetour = d; departIdx = d.rejoinIdx;
+          }
+        }
+      }
+      assert(activeDetour !== null, 'detected we are inside detour A');
+      assert(departIdx === 30, `departIdx pushed to ${departIdx}, should be 30`);
+
+      const rejoinIdx = 50;
+      if (activeDetour) {
+        const snapIn = snapToRoute(curPt, activeDetour.coords);
+        activeDetour.coords = activeDetour.coords.slice(0, snapIn.index + 1);
+      }
+      const dBcoords = [[59.6, 24.6], [59.61, 24.61], [59.62, 24.62]];
+      addDetour(departIdx, rejoinIdx, dBcoords);
+
+      assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
+      assert(hasCoord(59.5, 24.5), 'detour A first coord still present after B added');
+      const truncA = detours.find(d => d.departIdx === 20);
+      assert(truncA && truncA.coords.length === 6, `truncated A has ${truncA?.coords.length} coords, expected 6`);
+      assert(hasCoord(59.6, 24.6), 'detour B coords present');
+      assert(originalRoute.length === 100, 'originalRoute unchanged');
+
+      /* ── Test 7: capture C after completing detour A (past rejoin) ── */
+      console.log('Test 7: capture C after passing detour A');
+      setup();
+      addDetour(20, 30, [[59.1, 24.1], [59.11, 24.11]]);
+      const pastPt = originalRoute[40];
+      const snapPast = snapToRoute(pastPt, originalRoute);
+      let deptC = snapPast.index;
+      let activeC = null;
+      for (const d of detours) {
+        if (deptC >= d.departIdx && deptC < d.rejoinIdx) {
+          activeC = d;
+          deptC = d.rejoinIdx;
+        }
+      }
+      assert(activeC === null, 'not inside any detour');
+      assert(deptC === 40, `departIdx=${deptC} should be 40`);
+      addDetour(deptC, 55, [[59.4, 24.4]]);
+      assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
+      assert(hasCoord(59.1, 24.1), 'detour A still present');
+      assert(hasCoord(59.4, 24.4), 'detour C present');
+
+      /* ── Test 8: overlap rejection ── */
+      console.log('Test 8: overlap rejection');
+      setup();
+      addDetour(20, 30, [[59.1, 24.1]]);
+      addDetour(25, 40, [[59.2, 24.2]]);
+      assert(detours.length === 1, 'overlapping detour rejected');
+      assert(hasCoord(59.1, 24.1), 'original detour still present');
+      assert(!hasCoord(59.2, 24.2), 'overlapping detour not present');
+
+      /* ── Test 9: adjacent detours (touching, not overlapping) ── */
+      console.log('Test 9: adjacent detours (B starts at A rejoin)');
+      setup();
+      addDetour(20, 30, [[59.1, 24.1]]);
+      addDetour(30, 40, [[59.2, 24.2]]);
+      assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
+      assert(hasCoord(59.1, 24.1), 'detour A present');
+      assert(hasCoord(59.2, 24.2), 'detour B present');
+
+      /* ── Restore ── */
+      setup();
 
       console.log(`\nResults: ${pass} passed, ${fail} failed`);
       return fail === 0;
