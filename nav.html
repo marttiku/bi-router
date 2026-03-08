@@ -735,12 +735,12 @@
           g.scale(dpr, dpr);
           setTimeout(() => {
             if (sqSet14) {
-              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, sqSet14, '#663399', 0.12);
-              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, sqSet14, '#663399', 1, 0.25);
+              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, sqSet14, '#663399', 0.25);
+              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, sqSet14, '#663399', 1, 0.4);
             }
             if (sqSet17) {
-              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, sqSet17, '#996633', 0.08);
-              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, sqSet17, '#996633', 0.5, 0.2);
+              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, sqSet17, '#996633', 0.18);
+              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, sqSet17, '#996633', 0.5, 0.35);
             }
             done(null, c);
           }, 0);
