@@ -337,6 +337,21 @@
       font-variant-numeric: tabular-nums;
     }
 
+    .opp-marker-red {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: rgba(239, 83, 80, 0.8);
+      border: 2px solid #fff;
+      box-shadow: 0 0 4px rgba(0,0,0,0.4);
+    }
+    .opp-marker-yellow {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: rgba(255, 213, 79, 0.8);
+      border: 2px solid #fff;
+      box-shadow: 0 0 4px rgba(0,0,0,0.4);
+    }
+
     #dev-play-btn {
       width: 28px;
       height: 28px;
@@ -926,6 +941,43 @@
       }
     }
 
+    /* ── Full-route opportunity markers (dev mode) ── */
+    const oppMarkers = [];
+
+    function scanFullRouteOpportunities() {
+      if (!sqSet14 || !devMode) return;
+      oppMarkers.forEach(m => map.removeLayer(m));
+      oppMarkers.length = 0;
+
+      const seen = new Set();
+      for (let i = 0; i < route.length - 1; i++) {
+        const tx = lon2tile(route[i][1], SQ_Z);
+        const ty = lat2tile(route[i][0], SQ_Z);
+        for (let dx = -1; dx <= 1; dx++)
+          for (let dy = -1; dy <= 1; dy++) {
+            const key = `${tx + dx}-${ty + dy}`;
+            if (seen.has(key) || sqSet14.has(key)) continue;
+            seen.add(key);
+            const borderDist = tileBorderDistToPoint(key, SQ_Z, route[i]);
+
+            let type = null;
+            if (borderDist <= 50) type = 'red';
+            else if (borderDist < 500) type = 'yellow';
+            if (!type) continue;
+
+            const pt = nearestBorderPoint(key, SQ_Z, route[i]);
+            const cls = type === 'red' ? 'opp-marker-red' : 'opp-marker-yellow';
+            const dist = type === 'red' ? `~${Math.round(borderDist)}m` : `+${Math.round(2 * borderDist * 1.4)}m detour`;
+            const marker = L.marker(pt, {
+              icon: L.divIcon({ className: '', html: `<div class="${cls}"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] }),
+              zIndexOffset: 500,
+            }).bindTooltip(`+1 SQ (${dist})`, { direction: 'top', offset: [0, -8] })
+              .addTo(map);
+            oppMarkers.push(marker);
+          }
+      }
+    }
+
     /* ── Squadrats data loading ────────────────── */
     async function loadSquadratsForUid(uid) {
       const servers = ['https://mainframe-proxy-01.squadrats.com', 'https://mainframe-proxy-02.squadrats.com'];
@@ -943,6 +995,7 @@
             computeSqOnRoute();
             updateSqStats();
             sqStatsEl.style.display = 'flex';
+            scanFullRouteOpportunities();
             return true;
           }
         } catch { /* try next or skip */ }
