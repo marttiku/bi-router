@@ -1540,8 +1540,16 @@ document.getElementById('btn-navigate').addEventListener('click', () => {
   if (routeCoordinates.length < 2) return;
   window.open(buildNavUrl(routeCoordinates), '_blank');
 });
-document.getElementById('btn-navigate-dev').addEventListener('click', () => {
+document.getElementById('btn-navigate-dev').addEventListener('click', async () => {
   if (routeCoordinates.length < 2) return;
+  if (!sqRaw._uid) {
+    try {
+      const result = await new Promise(resolve =>
+        chrome.runtime.sendMessage({ type: 'getSquadratsUid' }, resolve)
+      );
+      if (result?.uid) sqRaw._uid = result.uid;
+    } catch { /* extension API unavailable */ }
+  }
   window.open(buildDevNavUrl(routeCoordinates), '_blank');
 });
 document.getElementById('btn-share').addEventListener('click', async () => {
