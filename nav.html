@@ -229,6 +229,13 @@
     }
     .opp-card .opp-btn:active { background: rgba(0,0,0,0.3); }
 
+    @keyframes opp-pulse {
+      0%   { transform: scale(1); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+      50%  { transform: scale(1.08); box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
+      100% { transform: scale(1); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+    }
+    .opp-card.new { animation: opp-pulse 0.6s ease-in-out 2; }
+
     .walk-marker {
       background: #ef5350;
       color: #fff;
@@ -944,11 +951,16 @@
     }
 
     /* ── Opportunity card rendering ───────────── */
+    const shownOppKeys = new Set();
+
     function renderOppCards() {
       oppStrip.innerHTML = '';
+      const currentKeys = new Set();
       for (const opp of opportunities) {
+        currentKeys.add(opp.key);
+        const isNew = !shownOppKeys.has(opp.key);
         const card = document.createElement('div');
-        card.className = `opp-card ${opp.type}`;
+        card.className = `opp-card ${opp.type}${isNew ? ' new' : ''}`;
         const label = document.createElement('span');
         label.textContent = opp.label;
         card.appendChild(label);
@@ -958,7 +970,10 @@
         btn.addEventListener('click', (e) => { e.stopPropagation(); handleOppTap(opp); });
         card.appendChild(btn);
         oppStrip.appendChild(card);
+        if (isNew) card.addEventListener('animationend', () => card.classList.remove('new'));
       }
+      shownOppKeys.clear();
+      currentKeys.forEach(k => shownOppKeys.add(k));
     }
 
     /* ── BRouter detour fetch ─────────────────── */
