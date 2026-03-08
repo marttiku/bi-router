@@ -24,13 +24,23 @@
 
     #stats-bar {
       display: flex;
-      justify-content: space-around;
-      align-items: center;
-      padding: 10px 12px;
+      flex-direction: column;
       background: #1a1a2e;
       border-bottom: 1px solid #2a2a4a;
       z-index: 1000;
       flex-shrink: 0;
+    }
+
+    .stats-row {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      padding: 8px 12px;
+    }
+
+    .stats-row + .stats-row {
+      border-top: 1px solid #2a2a4a;
+      padding: 6px 12px;
     }
 
     .stat-box {
@@ -53,6 +63,10 @@
     }
 
     .stat-val.accent { color: #4fc3f7; }
+
+    .stats-row.secondary .stat-val {
+      font-size: 16px;
+    }
 
     #map {
       flex: 1;
@@ -181,17 +195,37 @@
 <body>
 
   <div id="stats-bar">
-    <div class="stat-box">
-      <div class="stat-label">Remaining</div>
-      <div class="stat-val accent" id="dist-remaining">—</div>
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-label">Remaining</div>
+        <div class="stat-val accent" id="dist-remaining">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">ETA</div>
+        <div class="stat-val" id="eta">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Progress</div>
+        <div class="stat-val" id="progress">—</div>
+      </div>
     </div>
-    <div class="stat-box">
-      <div class="stat-label">ETA</div>
-      <div class="stat-val" id="eta">—</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-label">Progress</div>
-      <div class="stat-val" id="progress">—</div>
+    <div class="stats-row secondary">
+      <div class="stat-box">
+        <div class="stat-label">Covered</div>
+        <div class="stat-val" id="dist-covered">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Time</div>
+        <div class="stat-val" id="elapsed">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Avg</div>
+        <div class="stat-val" id="avg-speed">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Speed</div>
+        <div class="stat-val" id="cur-speed">—</div>
+      </div>
     </div>
   </div>
 
@@ -338,11 +372,27 @@
     let headingUp = false;
     let currentBearing = 0;
     let wakeLock = null;
+    let startTime = null;
+    let lastPositions = [];
 
     const distEl = document.getElementById('dist-remaining');
     const etaEl = document.getElementById('eta');
     const progEl = document.getElementById('progress');
+    const coveredEl = document.getElementById('dist-covered');
+    const elapsedEl = document.getElementById('elapsed');
+    const avgSpeedEl = document.getElementById('avg-speed');
+    const curSpeedEl = document.getElementById('cur-speed');
     const arrowEl = document.getElementById('compass-arrow');
+
+    function formatDist(m) {
+      return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+    }
+
+    function formatTime(mins) {
+      if (mins < 60) return `${mins} min`;
+      const h = Math.floor(mins / 60), m = mins % 60;
+      return `${h}h ${m}m`;
+    }
 
     /* ── GPS Tracking ──────────────────────────── */
     if (!navigator.geolocation) {
@@ -356,6 +406,9 @@
     }
 
     function onPosition(pos) {
+      const now = Date.now();
+      if (!startTime) startTime = now;
+
       const cur = [pos.coords.latitude, pos.coords.longitude];
       gpsDot.setLatLng(cur);
       if (!map.hasLayer(gpsDot)) gpsDot.addTo(map);
@@ -367,23 +420,35 @@
 
       travelledLine.setLatLngs(route.slice(0, snap.index + 1));
 
-      if (remaining < 1000) {
-        distEl.textContent = `${Math.round(remaining)} m`;
-      } else {
-        distEl.textContent = `${(remaining / 1000).toFixed(1)} km`;
-      }
-
-      const walkSpeedMs = 5 / 3.6;
-      const etaMins = Math.round(remaining / walkSpeedMs / 60);
-      if (etaMins < 60) {
-        etaEl.textContent = `${etaMins} min`;
-      } else {
-        const h = Math.floor(etaMins / 60);
-        const m = etaMins % 60;
-        etaEl.textContent = `${h}h ${m}m`;
-      }
-
+      distEl.textContent = formatDist(remaining);
+      coveredEl.textContent = formatDist(covered);
       progEl.textContent = `${pct}%`;
+
+      const elapsedMs = now - startTime;
+      const elapsedMins = Math.round(elapsedMs / 60000);
+      elapsedEl.textContent = formatTime(elapsedMins);
+
+      const avgKmh = elapsedMs > 10000 ? (covered / 1000) / (elapsedMs / 3600000) : 0;
+      avgSpeedEl.textContent = avgKmh > 0.5 ? `${avgKmh.toFixed(1)}` : '—';
+
+      const gpsSpeed = pos.coords.speed;
+      if (gpsSpeed != null && gpsSpeed >= 0) {
+        curSpeedEl.textContent = `${(gpsSpeed * 3.6).toFixed(1)}`;
+      } else {
+        lastPositions.push({ pos: cur, time: now });
+        if (lastPositions.length > 5) lastPositions.shift();
+        if (lastPositions.length >= 2) {
+          const first = lastPositions[0], last = lastPositions[lastPositions.length - 1];
+          const dt = (last.time - first.time) / 1000;
+          if (dt > 2) {
+            const ds = haversine(first.pos, last.pos);
+            curSpeedEl.textContent = `${(ds / dt * 3.6).toFixed(1)}`;
+          }
+        }
+      }
+
+      const etaMs = avgKmh > 0.5 ? (remaining / 1000) / avgKmh * 3600000 : remaining / (5 / 3.6) * 1000;
+      etaEl.textContent = formatTime(Math.round(etaMs / 60000));
 
       const nextIdx = Math.min(snap.index + 3, route.length - 1);
       const brng = bearing(cur, route[nextIdx]);
@@ -405,7 +470,18 @@
       }
 
       if (following) {
-        map.setView(cur, Math.max(map.getZoom(), 16), { animate: true });
+        const zoom = Math.max(map.getZoom(), 16);
+        if (headingUp) {
+          const point = map.project(L.latLng(cur[0], cur[1]), zoom);
+          const offsetPx = map.getSize().y * 0.25;
+          const bRad = toRad(brng);
+          point.x += Math.sin(bRad) * offsetPx;
+          point.y -= Math.cos(bRad) * offsetPx;
+          const center = map.unproject(point, zoom);
+          map.setView(center, zoom, { animate: true });
+        } else {
+          map.setView(cur, zoom, { animate: true });
+        }
       }
     }
 
@@ -439,7 +515,17 @@
       centerBtn.classList.add('active');
       const ll = gpsDot.getLatLng();
       if (ll.lat !== 0 || ll.lng !== 0) {
-        map.setView(ll, Math.max(map.getZoom(), 16), { animate: true });
+        const zoom = Math.max(map.getZoom(), 16);
+        if (headingUp) {
+          const point = map.project(ll, zoom);
+          const offsetPx = map.getSize().y * 0.25;
+          const bRad = toRad(currentBearing);
+          point.x += Math.sin(bRad) * offsetPx;
+          point.y -= Math.cos(bRad) * offsetPx;
+          map.setView(map.unproject(point, zoom), zoom, { animate: true });
+        } else {
+          map.setView(ll, zoom, { animate: true });
+        }
       }
     });
 
