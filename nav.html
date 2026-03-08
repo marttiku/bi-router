@@ -1083,7 +1083,7 @@
 
               const center = tileCenter(key, z);
               const cls = type === 'red' ? 'opp-marker-red' : 'opp-marker-yellow';
-              const dist = type === 'red' ? `🚶 ${Math.round(borderDist)}m` : `~${Math.round(2 * borderDist * 1.4)}m detour`;
+              const dist = type === 'red' ? `🛑 ${Math.round(borderDist)}m` : `~${Math.round(borderDist)}m from route`;
               const marker = L.marker(center, {
                 icon: L.divIcon({ className: '', html: `<div class="${cls}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] }),
                 zIndexOffset: 500,
