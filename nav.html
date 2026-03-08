@@ -918,7 +918,7 @@
           if (a.type !== b.type) return a.type === 'red' ? -1 : 1;
           return (b.tiles / Math.max(b.dist, 1)) - (a.tiles / Math.max(a.dist, 1));
         })
-        .slice(0, 5);
+        .slice(0, 1);
       renderOppCards();
 
       if (redOpps.length || validatedYellows.length || toValidate.length) {
