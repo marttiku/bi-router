@@ -57,6 +57,34 @@
         </label>
         <input type="checkbox" id="toggle-bike-roads" class="toggle-checkbox">
       </div>
+      <div class="control-row">
+        <label for="toggle-squadrats" class="toggle-label">
+          <span class="layer-color-swatch" style="background:#663399"></span>
+          Squadrats
+        </label>
+        <input type="checkbox" id="toggle-squadrats" class="toggle-checkbox toggle-squadrats">
+      </div>
+      <div id="squadrats-status" class="squadrats-status" style="display:none"></div>
+      <div id="squadrats-controls" style="display:none">
+        <div class="control-row">
+          <label for="squadrats-opacity-slider">Opacity</label>
+          <div class="slider-group">
+            <input type="range" id="squadrats-opacity-slider" min="10" max="100" value="50">
+            <span id="squadrats-opacity-value">50%</span>
+          </div>
+        </div>
+        <div class="control-row">
+          <label for="toggle-squadrats-grid" class="toggle-label">Grid lines</label>
+          <input type="checkbox" id="toggle-squadrats-grid" class="toggle-checkbox toggle-squadrats" checked>
+        </div>
+        <div class="control-row">
+          <label for="toggle-squadrats-new" class="toggle-label">
+            <span class="layer-color-swatch" style="background:#4cf095"></span>
+            New on route
+          </label>
+          <input type="checkbox" id="toggle-squadrats-new" class="toggle-checkbox toggle-squadrats" checked>
+        </div>
+      </div>
     </section>
 
     <section class="sidebar-section">

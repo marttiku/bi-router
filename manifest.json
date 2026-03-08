@@ -5,11 +5,13 @@
   "description": "Plan cycling routes using Strava's global heatmap overlay and export to GPX for Google Maps",
   "permissions": [
     "cookies",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "storage"
   ],
   "host_permissions": [
     "*://*.strava.com/*",
-    "*://gis.tallinn.ee/*"
+    "*://gis.tallinn.ee/*",
+    "*://*.squadrats.com/*"
   ],
   "background": {
     "service_worker": "background.js"

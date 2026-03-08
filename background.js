@@ -20,7 +20,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     setupTileAuth().then(sendResponse);
     return true;
   }
+
+  if (message.type === 'fetchSquadrats') {
+    fetchSquadratsData(message.uid).then(sendResponse);
+    return true;
+  }
+
+  if (message.type === 'getSquadratsUid') {
+    chrome.storage.local.get(['squadrant_uid'], (result) => {
+      sendResponse({ uid: result?.squadrant_uid || null });
+    });
+    return true;
+  }
 });
+
+const SQUADRATS_MAINFRAMES = [
+  'https://mainframe-proxy-01.squadrats.com',
+  'https://mainframe-proxy-02.squadrats.com',
+];
+
+async function fetchSquadratsData(uid) {
+  if (!uid) return { error: 'No Squadrats UID' };
+
+  for (const base of SQUADRATS_MAINFRAMES) {
+    try {
+      const resp = await fetch(
+        `${base}/anonymous/squadrants/${uid}?planner=strava`,
+        { signal: AbortSignal.timeout(10000) }
+      );
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      if (data?.raw) return { raw: data.raw, geojson: data.geojson };
+    } catch { /* try next server */ }
+  }
+
+  return { error: 'Could not reach Squadrats servers' };
+}
 
 async function setupTileAuth() {
   try {

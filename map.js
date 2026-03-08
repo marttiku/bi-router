@@ -309,6 +309,7 @@ function scheduleRoute() {
   if (waypoints.length < 2) {
     updateStats(null);
     updateButtons();
+    if (squadratsNewLayer) squadratsNewLayer.setNewTiles(null);
     return;
   }
 
@@ -351,6 +352,7 @@ async function updateRoute() {
 
     updateStats(route);
     updateButtons();
+    updateSquadratsNewLayer();
   } catch (err) {
     if (err.name === 'AbortError') return;
     console.error('Routing error:', err);
@@ -687,6 +689,343 @@ async function toggleBikeRoads(show) {
 
 document.getElementById('toggle-bike-roads').addEventListener('change', (e) => {
   toggleBikeRoads(e.target.checked);
+});
+
+// ── Squadrats Layer ──────────────────────────────────────────────
+const SQUADRATS_ZOOM = 14;
+let squadratsRaw14 = null;
+let squadratsTileLayer = null;
+let squadratsGridLayer = null;
+let squadratsNewLayer = null;
+let squadratsEnabled = false;
+let squadratsShowGrid = true;
+let squadratsShowNew = true;
+let squadratsOpacity = 0.5;
+
+function lon2tile(lng, zoom) {
+  return Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+}
+
+function lat2tile(lat, zoom) {
+  return Math.floor(
+    (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)
+  );
+}
+
+function tile2lon(x, zoom) {
+  return x / Math.pow(2, zoom) * 360 - 180;
+}
+
+function tile2lat(y, zoom) {
+  const n = Math.PI - 2 * Math.PI * y / Math.pow(2, zoom);
+  return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}
+
+function createSquadratsTileLayer() {
+  return L.GridLayer.extend({
+    options: { tileSize: 256 },
+    createTile(coords, done) {
+      const canvas = document.createElement('canvas');
+      const size = this.getTileSize();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = size.x * dpr;
+      canvas.height = size.y * dpr;
+      canvas.style.width = `${size.x}px`;
+      canvas.style.height = `${size.y}px`;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      setTimeout(() => {
+        if (squadratsRaw14) {
+          this._drawVisited(ctx, coords.x, coords.y, coords.z, size.x);
+        }
+        done(null, canvas);
+      }, 0);
+      return canvas;
+    },
+    _drawVisited(ctx, tileX, tileY, zoom, tileSize) {
+      const scale = Math.pow(2, SQUADRATS_ZOOM - zoom);
+      const minSqX = Math.floor(tileX * scale);
+      const minSqY = Math.floor(tileY * scale);
+      const maxSqX = Math.ceil((tileX + 1) * scale) - 1;
+      const maxSqY = Math.ceil((tileY + 1) * scale) - 1;
+      const cellPx = tileSize / scale;
+
+      if (cellPx < 1) return;
+
+      ctx.fillStyle = '#c8a0e8';
+      ctx.globalAlpha = squadratsOpacity;
+
+      for (let sx = minSqX; sx <= maxSqX; sx++) {
+        for (let sy = minSqY; sy <= maxSqY; sy++) {
+          if (squadratsRaw14.has(`${sx}-${sy}`)) {
+            const px = (sx - tileX * scale) * cellPx;
+            const py = (sy - tileY * scale) * cellPx;
+            ctx.fillRect(px, py, cellPx, cellPx);
+          }
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+  });
+}
+
+function createSquadratsGridLayer() {
+  return L.GridLayer.extend({
+    options: { tileSize: 256 },
+    createTile(coords, done) {
+      const canvas = document.createElement('canvas');
+      const size = this.getTileSize();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = size.x * dpr;
+      canvas.height = size.y * dpr;
+      canvas.style.width = `${size.x}px`;
+      canvas.style.height = `${size.y}px`;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      setTimeout(() => {
+        this._drawGrid(ctx, coords.x, coords.y, coords.z, size.x);
+        done(null, canvas);
+      }, 0);
+      return canvas;
+    },
+    _drawGrid(ctx, tileX, tileY, zoom, tileSize) {
+      const scale = Math.pow(2, SQUADRATS_ZOOM - zoom);
+      const cellPx = tileSize / scale;
+      if (cellPx < 4) return;
+
+      ctx.strokeStyle = '#663399';
+      ctx.lineWidth = cellPx > 20 ? 1 : 0.5;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+
+      const minSqX = Math.floor(tileX * scale);
+      const minSqY = Math.floor(tileY * scale);
+      const maxSqX = Math.ceil((tileX + 1) * scale);
+      const maxSqY = Math.ceil((tileY + 1) * scale);
+
+      for (let sx = minSqX; sx <= maxSqX; sx++) {
+        const px = (sx - tileX * scale) * cellPx;
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, tileSize);
+      }
+      for (let sy = minSqY; sy <= maxSqY; sy++) {
+        const py = (sy - tileY * scale) * cellPx;
+        ctx.moveTo(0, py);
+        ctx.lineTo(tileSize, py);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  });
+}
+
+function createSquadratsNewLayer() {
+  return L.GridLayer.extend({
+    options: { tileSize: 256 },
+    _newTiles: null,
+    setNewTiles(tiles) {
+      this._newTiles = tiles;
+      this.redraw();
+    },
+    createTile(coords, done) {
+      const canvas = document.createElement('canvas');
+      const size = this.getTileSize();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = size.x * dpr;
+      canvas.height = size.y * dpr;
+      canvas.style.width = `${size.x}px`;
+      canvas.style.height = `${size.y}px`;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      setTimeout(() => {
+        if (this._newTiles?.size) {
+          this._drawNew(ctx, coords.x, coords.y, coords.z, size.x);
+        }
+        done(null, canvas);
+      }, 0);
+      return canvas;
+    },
+    _drawNew(ctx, tileX, tileY, zoom, tileSize) {
+      const scale = Math.pow(2, SQUADRATS_ZOOM - zoom);
+      const minSqX = Math.floor(tileX * scale);
+      const minSqY = Math.floor(tileY * scale);
+      const maxSqX = Math.ceil((tileX + 1) * scale) - 1;
+      const maxSqY = Math.ceil((tileY + 1) * scale) - 1;
+      const cellPx = tileSize / scale;
+      if (cellPx < 1) return;
+
+      ctx.fillStyle = '#4cf095';
+      ctx.globalAlpha = 0.5;
+
+      for (let sx = minSqX; sx <= maxSqX; sx++) {
+        for (let sy = minSqY; sy <= maxSqY; sy++) {
+          if (this._newTiles.has(`${sx}-${sy}`)) {
+            const px = (sx - tileX * scale) * cellPx;
+            const py = (sy - tileY * scale) * cellPx;
+            ctx.fillRect(px, py, cellPx, cellPx);
+          }
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+  });
+}
+
+function getRouteSquadrats() {
+  if (routeCoordinates.length < 2 || !squadratsRaw14) return null;
+
+  const newTiles = new Set();
+  let prevKey = null;
+
+  for (const [lat, lng] of routeCoordinates) {
+    const tx = lon2tile(lng, SQUADRATS_ZOOM);
+    const ty = lat2tile(lat, SQUADRATS_ZOOM);
+    const key = `${tx}-${ty}`;
+    if (key !== prevKey) {
+      if (!squadratsRaw14.has(key)) newTiles.add(key);
+      prevKey = key;
+    }
+  }
+  return newTiles;
+}
+
+function updateSquadratsNewLayer() {
+  if (!squadratsEnabled || !squadratsShowNew || !squadratsNewLayer) return;
+  const newTiles = getRouteSquadrats();
+  squadratsNewLayer.setNewTiles(newTiles);
+
+  const statsEl = document.getElementById('squadrats-status');
+  if (newTiles?.size && statsEl.style.display !== 'none') {
+    const existing = statsEl.querySelector('.sq-route-new');
+    const html = `<span class="sq-stat sq-route-new">Route: <strong>+${newTiles.size}</strong> new</span>`;
+    if (existing) existing.outerHTML = html;
+    else {
+      const container = statsEl.querySelector('.sq-stats');
+      if (container) container.insertAdjacentHTML('beforeend', html);
+    }
+  }
+}
+
+async function loadSquadratsData() {
+  const statusEl = document.getElementById('squadrats-status');
+  statusEl.style.display = 'block';
+  statusEl.className = 'squadrats-status';
+  statusEl.textContent = 'Connecting to Squadrats…';
+
+  const uidResult = await new Promise(resolve =>
+    chrome.runtime.sendMessage({ type: 'getSquadratsUid' }, resolve)
+  );
+
+  if (!uidResult?.uid) {
+    statusEl.className = 'squadrats-status error';
+    statusEl.innerHTML = 'Not connected. Install the <a href="https://chromewebstore.google.com/detail/squadrats-route-planning/mkcobabnclhdodfhajlagglahfhkeeon" target="_blank" style="color:#bb86fc">Squadrats extension</a> and connect your account.';
+    return false;
+  }
+
+  const result = await new Promise(resolve =>
+    chrome.runtime.sendMessage({ type: 'fetchSquadrats', uid: uidResult.uid }, resolve)
+  );
+
+  if (result?.error) {
+    statusEl.className = 'squadrats-status error';
+    statusEl.textContent = result.error;
+    return false;
+  }
+
+  if (result?.raw?.[14]) {
+    squadratsRaw14 = new Set(Array.isArray(result.raw[14]) ? result.raw[14] : Object.keys(result.raw[14]));
+  } else {
+    statusEl.className = 'squadrats-status error';
+    statusEl.textContent = 'No tile data received.';
+    return false;
+  }
+
+  statusEl.className = 'squadrats-status';
+  statusEl.innerHTML = `<div class="sq-stats"><span class="sq-stat">Tiles: <strong>${squadratsRaw14.size}</strong></span></div>`;
+  return true;
+}
+
+async function toggleSquadrats(show) {
+  if (!show) {
+    if (squadratsTileLayer) { map.removeLayer(squadratsTileLayer); }
+    if (squadratsGridLayer) { map.removeLayer(squadratsGridLayer); }
+    if (squadratsNewLayer) { map.removeLayer(squadratsNewLayer); }
+    document.getElementById('squadrats-controls').style.display = 'none';
+    document.getElementById('squadrats-status').style.display = 'none';
+    squadratsEnabled = false;
+    return;
+  }
+
+  squadratsEnabled = true;
+  document.getElementById('squadrats-controls').style.display = 'block';
+
+  if (!squadratsRaw14) {
+    const ok = await loadSquadratsData();
+    if (!ok) {
+      document.getElementById('toggle-squadrats').checked = false;
+      squadratsEnabled = false;
+      return;
+    }
+  } else {
+    document.getElementById('squadrats-status').style.display = 'block';
+  }
+
+  const TileLayer = createSquadratsTileLayer();
+  squadratsTileLayer = new TileLayer();
+  squadratsTileLayer.addTo(map);
+
+  if (squadratsShowGrid) {
+    const GridLayer = createSquadratsGridLayer();
+    squadratsGridLayer = new GridLayer();
+    squadratsGridLayer.addTo(map);
+  }
+
+  if (squadratsShowNew) {
+    const NewLayer = createSquadratsNewLayer();
+    squadratsNewLayer = new NewLayer();
+    squadratsNewLayer.addTo(map);
+    updateSquadratsNewLayer();
+  }
+}
+
+document.getElementById('toggle-squadrats').addEventListener('change', (e) => {
+  toggleSquadrats(e.target.checked);
+});
+
+document.getElementById('squadrats-opacity-slider').addEventListener('input', (e) => {
+  squadratsOpacity = parseInt(e.target.value) / 100;
+  document.getElementById('squadrats-opacity-value').textContent = `${e.target.value}%`;
+  if (squadratsTileLayer) squadratsTileLayer.redraw();
+});
+
+document.getElementById('toggle-squadrats-grid').addEventListener('change', (e) => {
+  squadratsShowGrid = e.target.checked;
+  if (squadratsShowGrid && squadratsEnabled) {
+    if (!squadratsGridLayer) {
+      const GridLayer = createSquadratsGridLayer();
+      squadratsGridLayer = new GridLayer();
+    }
+    squadratsGridLayer.addTo(map);
+  } else if (squadratsGridLayer) {
+    map.removeLayer(squadratsGridLayer);
+  }
+});
+
+document.getElementById('toggle-squadrats-new').addEventListener('change', (e) => {
+  squadratsShowNew = e.target.checked;
+  if (squadratsShowNew && squadratsEnabled) {
+    if (!squadratsNewLayer) {
+      const NewLayer = createSquadratsNewLayer();
+      squadratsNewLayer = new NewLayer();
+    }
+    squadratsNewLayer.addTo(map);
+    updateSquadratsNewLayer();
+  } else if (squadratsNewLayer) {
+    map.removeLayer(squadratsNewLayer);
+  }
 });
 
 // ── Heatmap Controls ─────────────────────────────────────────────

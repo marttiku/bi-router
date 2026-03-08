@@ -171,9 +171,41 @@ body {
   background: #005499;
 }
 
+.toggle-checkbox.toggle-squadrats:checked {
+  background: #663399;
+}
+
 .toggle-checkbox:checked::after {
   transform: translateX(16px);
   background: #fff;
+}
+
+/* ── Squadrats Status ────────────────────────── */
+
+.squadrats-status {
+  font-size: 11px;
+  padding: 4px 0 2px;
+  color: #8888aa;
+}
+
+.squadrats-status.error {
+  color: #e57373;
+}
+
+.squadrats-status .sq-stats {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.squadrats-status .sq-stat {
+  color: #b0b0cc;
+  font-variant-numeric: tabular-nums;
+}
+
+.squadrats-status .sq-stat strong {
+  color: #fff;
+  font-weight: 600;
 }
 
 .bike-road-tooltip {
