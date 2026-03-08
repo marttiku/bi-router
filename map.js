@@ -457,7 +457,7 @@ function buildNavUrl(coords) {
     encoded = encodePolyline(pts);
   }
 
-  const baseUrl = 'https://marttikuldma.github.io/strava-route-planner/nav.html';
+  const baseUrl = 'https://marttiku.github.io/bi-router/nav.html';
   return `${baseUrl}#${encodeURIComponent(encoded)}`;
 }
 
