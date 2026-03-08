@@ -398,6 +398,7 @@ function updateButtons() {
   document.getElementById('btn-return-start').disabled = waypoints.length < 2;
   document.getElementById('btn-export').disabled = routeCoordinates.length === 0;
   document.getElementById('btn-navigate').disabled = routeCoordinates.length < 2;
+  document.getElementById('btn-share').disabled = routeCoordinates.length < 2;
   document.getElementById('btn-google').disabled = waypoints.length < 2;
   document.getElementById('btn-send-device').disabled = routeCoordinates.length < 2;
 
@@ -705,6 +706,32 @@ document.getElementById('btn-export').addEventListener('click', exportGPX);
 document.getElementById('btn-navigate').addEventListener('click', () => {
   if (routeCoordinates.length < 2) return;
   window.open(buildNavUrl(routeCoordinates), '_blank');
+});
+document.getElementById('btn-share').addEventListener('click', async () => {
+  if (routeCoordinates.length < 2) return;
+  const navUrl = buildNavUrl(routeCoordinates);
+  const distKm = lastRouteDistanceKm < 10
+    ? `${lastRouteDistanceKm.toFixed(1)} km`
+    : `${Math.round(lastRouteDistanceKm)} km`;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `Route — ${distKm}`,
+        text: `Check out this ${distKm} route!`,
+        url: navUrl,
+      });
+    } catch (e) {
+      if (e.name !== 'AbortError') console.warn('Share failed:', e);
+    }
+  } else {
+    try {
+      await navigator.clipboard.writeText(navUrl);
+      showToast('Route link copied to clipboard!', 'success');
+    } catch (e) {
+      showToast('Could not copy link.', 'error');
+    }
+  }
 });
 document.getElementById('btn-google').addEventListener('click', openInGoogleMaps);
 document.getElementById('btn-send-device').addEventListener('click', sendToDevice);

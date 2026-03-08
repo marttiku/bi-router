@@ -339,6 +339,16 @@ body {
   background: #00695c;
 }
 
+.btn-share {
+  background: #5c6bc0;
+  color: #fff;
+  flex: 2;
+}
+
+.btn-share:hover:not(:disabled) {
+  background: #3f51b5;
+}
+
 .btn-google {
   background: #1a73e8;
   color: #fff;
