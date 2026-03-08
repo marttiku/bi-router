@@ -794,6 +794,7 @@
         const cur = queue.shift();
         const [cx, cy] = cur.split('-').map(Number);
         for (const [dx, dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+          if (cluster.length >= maxTiles) break;
           const nk = `${cx+dx}-${cy+dy}`;
           if (checked.has(nk)) continue;
           checked.add(nk);
@@ -813,6 +814,23 @@
         if (acc >= minDistM) return Math.min(i + 1, route.length - 1);
       }
       return route.length - 1;
+    }
+
+    function sortNearestNeighbor(start, points) {
+      const remaining = [...points];
+      const ordered = [];
+      let cur = start;
+      while (remaining.length > 0) {
+        let best = 0, bestDist = haversine(cur, remaining[0]);
+        for (let i = 1; i < remaining.length; i++) {
+          const d = haversine(cur, remaining[i]);
+          if (d < bestDist) { best = i; bestDist = d; }
+        }
+        ordered.push(remaining[best]);
+        cur = remaining[best];
+        remaining.splice(best, 1);
+      }
+      return ordered;
     }
 
     function scanOpportunities(snapIdx) {
@@ -848,8 +866,8 @@
                   borderPt: nearestBorderPoint(key, z, route[closestRouteIdx]),
                   routeIdx: closestRouteIdx, tileLabel: label });
               } else if (minRouteDist < 800) {
-                const cluster = findAdjacentUnvisited(key, z, rawSet, capturedSet, 4);
-                const viaPoints = cluster.map(k => tileCenter(k, z));
+                const cluster = findAdjacentUnvisited(key, z, rawSet, capturedSet, 3);
+                const viaPoints = sortNearestNeighbor(route[closestRouteIdx], cluster.map(k => tileCenter(k, z)));
                 const rejoinIdx = findRejoinIdx(closestRouteIdx, Math.max(300, minRouteDist * 2));
                 yellowCandidates.push({ type: 'yellow', key, z, keys: cluster, tiles: cluster.length,
                   dist: Math.round(2 * minRouteDist * 1.4),
@@ -944,7 +962,7 @@
     }
 
     /* ── BRouter detour fetch ─────────────────── */
-    async function fetchDetourRoute(waypoints) {
+    async function tryBRouterRoute(waypoints) {
       const lonlats = waypoints.map(p => `${p[1]},${p[0]}`).join('|');
       const profiles = ['trekking', 'hiking-mountain'];
       for (const profile of profiles) {
@@ -957,6 +975,22 @@
           const dist = routeLength(coords);
           return { coords, distance: dist };
         } catch { /* try next profile */ }
+      }
+      return null;
+    }
+
+    async function fetchDetourRoute(waypoints) {
+      const result = await tryBRouterRoute(waypoints);
+      if (result) return result;
+
+      if (waypoints.length > 3) {
+        const from = waypoints[0], to = waypoints[waypoints.length - 1];
+        const vias = waypoints.slice(1, -1);
+        const centroid = [
+          vias.reduce((s, p) => s + p[0], 0) / vias.length,
+          vias.reduce((s, p) => s + p[1], 0) / vias.length,
+        ];
+        return tryBRouterRoute([from, centroid, to]);
       }
       return null;
     }
@@ -1474,8 +1508,9 @@
         devLabel.textContent = `${Math.round(snap.index / (route.length - 1) * 100)}%`;
       });
 
-      gpsDot.on('dragend', (e) => {
-        const snap = snapToRoute([e.latlng.lat, e.latlng.lng], route);
+      gpsDot.on('dragend', () => {
+        const ll = gpsDot.getLatLng();
+        const snap = snapToRoute([ll.lat, ll.lng], route);
         devSlider.value = snap.index;
         simulateAt(snap.index);
       });
