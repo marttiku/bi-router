@@ -199,43 +199,48 @@ function startFromCurrentLocation() {
 
   showToast('Getting your location…', 'info');
 
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+  function applyStartLocation(latlng) {
+    if (waypoints.length === 0) {
+      addWaypoint(latlng);
+    } else {
+      const id = Date.now() + Math.random();
+      const icon = createStartIcon();
+      const marker = L.marker(latlng, { draggable: true, icon }).addTo(map);
 
-      if (waypoints.length === 0) {
-        addWaypoint(latlng);
-      } else {
-        const id = Date.now() + Math.random();
-        const icon = createStartIcon();
-        const marker = L.marker(latlng, { draggable: true, icon }).addTo(map);
-
-        marker.on('dragend', () => scheduleRoute());
-        marker.on('click', (e) => {
-          if (deleteMode) {
-            L.DomEvent.stopPropagation(e);
-            removeWaypoint(id);
-          }
-        });
-        marker.on('contextmenu', (e) => {
+      marker.on('dragend', () => scheduleRoute());
+      marker.on('click', (e) => {
+        if (deleteMode) {
           L.DomEvent.stopPropagation(e);
           removeWaypoint(id);
-        });
+        }
+      });
+      marker.on('contextmenu', (e) => {
+        L.DomEvent.stopPropagation(e);
+        removeWaypoint(id);
+      });
 
-        waypoints.unshift({ id, marker });
-        renumberWaypoints();
-        updateWaypointList();
-        scheduleRoute();
-        updateButtons();
-      }
+      waypoints.unshift({ id, marker });
+      renumberWaypoints();
+      updateWaypointList();
+      scheduleRoute();
+      updateButtons();
+    }
 
-      map.setView(latlng, Math.max(map.getZoom(), 13));
-      showToast('Start set to your current location.', 'success');
-    },
+    map.setView(latlng, Math.max(map.getZoom(), 13));
+    showToast('Start set to your current location.', 'success');
+  }
+
+  if (gpsMarker) {
+    applyStartLocation(gpsMarker.getLatLng());
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => applyStartLocation(L.latLng(pos.coords.latitude, pos.coords.longitude)),
     (err) => {
       showToast(`Could not get location: ${err.message}`, 'error');
     },
-    { enableHighAccuracy: true, timeout: 10000 }
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 60000 }
   );
 }
 
@@ -768,8 +773,10 @@ function startGpsTracking() {
 
       updateFollowButton();
     },
-    () => {},
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    (err) => {
+      if (err.code === 1) showToast('Location access denied. Enable it in browser settings.', 'error', 6000);
+    },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
   );
 }
 
