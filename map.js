@@ -32,6 +32,9 @@ let stravaLayer = null;
 let authenticated = false;
 let bikeRoadsLayer = null;
 let bikeRoadsData = null;
+let gpsMarker = null;
+let gpsFollowing = true;
+let gpsWatchId = null;
 
 // ── Map Setup ────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([initParams.lat, initParams.lng], Math.round(initParams.zoom));
@@ -735,6 +738,61 @@ document.getElementById('btn-share').addEventListener('click', async () => {
 });
 document.getElementById('btn-google').addEventListener('click', openInGoogleMaps);
 document.getElementById('btn-send-device').addEventListener('click', sendToDevice);
+
+// ── GPS Tracking ─────────────────────────────────────────────────
+function startGpsTracking() {
+  if (!navigator.geolocation || gpsWatchId != null) return;
+
+  gpsWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+
+      if (!gpsMarker) {
+        gpsMarker = L.marker(latlng, {
+          icon: L.divIcon({
+            className: 'gps-location-icon',
+            html: '<div class="gps-location-pulse"></div><div class="gps-location-dot"></div>',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+          }),
+          zIndexOffset: 2000,
+          interactive: false,
+        }).addTo(map);
+      } else {
+        gpsMarker.setLatLng(latlng);
+      }
+
+      if (gpsFollowing) {
+        map.setView(latlng, Math.max(map.getZoom(), 15), { animate: true });
+      }
+
+      updateFollowButton();
+    },
+    () => {},
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+function updateFollowButton() {
+  const btn = document.getElementById('btn-follow');
+  btn.style.display = gpsMarker ? '' : 'none';
+  btn.classList.toggle('active', gpsFollowing);
+}
+
+map.on('dragstart', () => {
+  gpsFollowing = false;
+  updateFollowButton();
+});
+
+document.getElementById('btn-follow').addEventListener('click', () => {
+  gpsFollowing = true;
+  updateFollowButton();
+  if (gpsMarker) {
+    map.setView(gpsMarker.getLatLng(), Math.max(map.getZoom(), 15), { animate: true });
+  }
+});
+
+startGpsTracking();
 
 // ── Map Click ────────────────────────────────────────────────────
 map.on('click', (e) => {
