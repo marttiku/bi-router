@@ -28,7 +28,7 @@ let waypoints = [];
 let routePolyline = null;
 let routeCoordinates = [];
 let stravaLayer = null;
-let stravaAuth = null;
+let authenticated = false;
 
 // ── Map Setup ────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([initParams.lat, initParams.lng], Math.round(initParams.zoom));
@@ -39,9 +39,9 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 // ── Strava Auth ──────────────────────────────────────────────────
-async function fetchStravaCookies() {
+async function setupAuth() {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'getStravaCookies' }, resolve);
+    chrome.runtime.sendMessage({ type: 'setupTileAuth' }, resolve);
   });
 }
 
@@ -49,38 +49,47 @@ async function checkAuth() {
   const el = document.getElementById('auth-status');
   const text = document.getElementById('auth-text');
 
-  const auth = await fetchStravaCookies();
-  stravaAuth = auth;
+  const result = await setupAuth();
+  authenticated = result.authenticated;
 
-  if (auth.authenticated) {
+  if (result.authenticated) {
     el.className = 'auth-badge connected';
     text.textContent = 'Connected to Strava';
     initHeatmap();
+  } else if (result.error) {
+    el.className = 'auth-badge disconnected';
+    text.textContent = 'Auth error';
+    showToast(`Auth setup failed: ${result.error}. Falling back to public tiles.`, 'error', 6000);
+    initHeatmap();
   } else {
     el.className = 'auth-badge disconnected';
+    const missingStr = result.missing?.join(', ') || 'cookies';
     text.textContent = 'Not logged into Strava';
-    showToast('Log into strava.com in this browser, then reload this page.', 'error', 8000);
+    showToast(`Missing cookies: ${missingStr}. Visit strava.com/maps/global-heatmap while logged in, then reload.`, 'error', 8000);
+    initHeatmap();
   }
 }
 
 // ── Heatmap Layer ────────────────────────────────────────────────
-function buildTileUrl() {
+function getTileUrl() {
   const activity = document.getElementById('sport-select').value;
   const color = document.getElementById('color-select').value;
-  const authQuery = `Key-Pair-Id=${encodeURIComponent(stravaAuth.keyPairId)}&Policy=${encodeURIComponent(stravaAuth.policy)}&Signature=${encodeURIComponent(stravaAuth.signature)}`;
-  return `https://heatmap-external-{s}.strava.com/tiles-auth/${activity}/${color}/{z}/{x}/{y}.png?${authQuery}`;
+
+  if (authenticated) {
+    return `https://content-a.strava.com/identified/globalheat/${activity}/${color}/{z}/{x}/{y}.png`;
+  }
+  return `https://heatmap-external-a.strava.com/tiles/${activity}/${color}/{z}/{x}/{y}.png`;
 }
 
 function initHeatmap() {
-  if (!stravaAuth?.authenticated) return;
   if (stravaLayer) map.removeLayer(stravaLayer);
 
-  stravaLayer = L.tileLayer(buildTileUrl(), {
-    subdomains: 'abc',
-    maxZoom: 15,
+  stravaLayer = L.tileLayer(getTileUrl(), {
+    maxZoom: authenticated ? 15 : 11,
     minZoom: 2,
     opacity: parseInt(document.getElementById('opacity-slider').value) / 100,
-    tileSize: 256
+    tileSize: 256,
+    errorTileUrl: ''
   });
 
   stravaLayer.addTo(map);
@@ -322,13 +331,8 @@ function showToast(message, type = 'info', duration = 3500) {
 }
 
 // ── Heatmap Controls ─────────────────────────────────────────────
-document.getElementById('sport-select').addEventListener('change', () => {
-  if (stravaAuth?.authenticated) initHeatmap();
-});
-
-document.getElementById('color-select').addEventListener('change', () => {
-  if (stravaAuth?.authenticated) initHeatmap();
-});
+document.getElementById('sport-select').addEventListener('change', () => initHeatmap());
+document.getElementById('color-select').addEventListener('change', () => initHeatmap());
 
 document.getElementById('opacity-slider').addEventListener('input', (e) => {
   const val = e.target.value;
