@@ -929,13 +929,14 @@
       const directDist = routeLength(route.slice(opp.routeIdx, opp.rejoinIdx + 1));
       const extraDist = detour.distance - directDist;
 
-      if (extraDist > MAX_DETOUR_EXTRA_M) {
-        console.log(`[opp] Failed: ${opp.key} — extra ${Math.round(extraDist)}m > ${MAX_DETOUR_EXTRA_M}m`);
+      const maxExtra = MAX_DETOUR_EXTRA_M * opp.tiles;
+      if (extraDist > maxExtra) {
+        console.log(`[opp] Failed: ${opp.key} — extra ${Math.round(extraDist)}m > ${maxExtra}m (${opp.tiles} tiles)`);
         oppRouteCache.set(opp.key, { status: 'failed' });
         return;
       }
 
-      console.log(`[opp] Validated: ${opp.key} — +${Math.round(extraDist)}m, ${opp.tiles} tiles`);
+      console.log(`[opp] Validated: ${opp.key} — +${Math.round(extraDist)}m for ${opp.tiles} tiles (limit ${maxExtra}m)`);
       oppRouteCache.set(opp.key, {
         status: 'ok',
         route: detour,
