@@ -238,7 +238,7 @@ function updateWaypointList() {
       <div class="waypoint-item" data-id="${wp.id}">
         <span class="${cls}">${label}</span>
         <span class="waypoint-coords">${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}</span>
-        <button class="waypoint-remove" title="Remove waypoint">&times;</button>
+        <button class="waypoint-remove" title="Remove waypoint">&#9632;</button>
       </div>`;
   }).join('');
 
