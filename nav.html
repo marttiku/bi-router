@@ -597,19 +597,22 @@
 
     function addDetour(departIdx, rejoinIdx, coords) {
       if (departIdx >= rejoinIdx) {
-        console.log(`[opp] Skipping invalid detour: depart=${departIdx} >= rejoin=${rejoinIdx}`);
-        return;
+        console.log(`[detour] Skipping invalid: depart=${departIdx} >= rejoin=${rejoinIdx}`);
+        return false;
       }
       for (const d of detours) {
         if (departIdx < d.rejoinIdx && rejoinIdx > d.departIdx) {
-          console.log(`[opp] Skipping overlapping detour: [${departIdx},${rejoinIdx}] overlaps [${d.departIdx},${d.rejoinIdx}]`);
-          return;
+          console.log(`[detour] Skipping overlapping: [${departIdx},${rejoinIdx}] overlaps [${d.departIdx},${d.rejoinIdx}]`);
+          return false;
         }
       }
       const entry = { departIdx, rejoinIdx, coords };
       detours.push(entry);
       detours.sort((a, b) => a.departIdx - b.departIdx);
+      console.log(`[detour] Added [${departIdx},${rejoinIdx}] (${coords.length} pts). Total detours: ${detours.length}`);
+      detours.forEach((d, i) => console.log(`  [${i}] depart=${d.departIdx} rejoin=${d.rejoinIdx} coords=${d.coords.length}`));
       buildEffectiveRoute();
+      return true;
     }
 
     let totalDistVar = routeLength(route);
@@ -1190,14 +1193,21 @@
         return;
       }
 
+      console.log(`[opp] Adding detour: depart=${departIdx}, rejoin=${rejoinIdx}, coords=${detourResult.coords.length} pts`);
       if (activeDetour) {
         const snapInDetour = snapToRoute(curPt, activeDetour.coords);
+        const savedCoords = activeDetour.coords;
         activeDetour.coords = activeDetour.coords.slice(0, snapInDetour.index + 1);
         console.log(`[opp] Truncated active detour [${activeDetour.departIdx},${activeDetour.rejoinIdx}] at coord ${snapInDetour.index}`);
+        const added = addDetour(departIdx, rejoinIdx, detourResult.coords);
+        if (!added) {
+          activeDetour.coords = savedCoords;
+          console.log(`[opp] Restored active detour coords (addDetour rejected)`);
+          buildEffectiveRoute();
+        }
+      } else {
+        addDetour(departIdx, rejoinIdx, detourResult.coords);
       }
-
-      console.log(`[opp] Adding detour: depart=${departIdx}, rejoin=${rejoinIdx}, coords=${detourResult.coords.length} pts`);
-      addDetour(departIdx, rejoinIdx, detourResult.coords);
 
       if (opp.keys) opp.keys.forEach(k => dismissedOppKeys.add(k));
       else dismissedOppKeys.add(opp.key);
@@ -1711,6 +1721,13 @@
       simulateAt(0, true);
     }
 
+    window.debugDetours = function() {
+      console.log(`Detours: ${detours.length}`);
+      detours.forEach((d, i) => console.log(`  [${i}] depart=${d.departIdx} rejoin=${d.rejoinIdx} coords=${d.coords.length}`));
+      console.log(`originalRoute: ${originalRoute.length} pts`);
+      console.log(`effectiveRoute: ${route.length} pts`);
+    };
+
     window.testDetourSystem = function() {
       let pass = 0, fail = 0;
       function assert(cond, msg) {
@@ -1852,6 +1869,124 @@
       assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
       assert(hasCoord(59.1, 24.1), 'detour A present');
       assert(hasCoord(59.2, 24.2), 'detour B present');
+
+      /* ── Test 10: user on orig route, future detour A ahead, capture B before A ── */
+      console.log('Test 10: capture B before existing future detour A');
+      setup();
+      addDetour(50, 60, [[59.7, 24.7], [59.71, 24.71]]);
+      assert(detours.length === 1, 'detour A at [50,60] added');
+      assert(hasCoord(59.7, 24.7), 'detour A present before capture');
+      const curPt10 = originalRoute[20];
+      const origSnap10 = snapToRoute(curPt10, originalRoute);
+      assert(origSnap10.index === 20, `user snap=${origSnap10.index} should be 20`);
+      addDetour(20, 35, [[59.8, 24.8], [59.81, 24.81]]);
+      assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
+      assert(hasCoord(59.7, 24.7), 'detour A still present after capture B');
+      assert(hasCoord(59.8, 24.8), 'detour B present');
+
+      /* ── Test 11: capture B whose rejoinIdx overlaps future detour A ── */
+      console.log('Test 11: capture B with rejoin overlapping future detour A');
+      setup();
+      addDetour(50, 60, [[59.7, 24.7]]);
+      assert(detours.length === 1, 'detour A at [50,60] added');
+      addDetour(30, 55, [[59.8, 24.8]]);
+      assert(detours.length === 1, 'overlapping B rejected (rejoin 55 inside A [50,60])');
+      assert(hasCoord(59.7, 24.7), 'detour A still present');
+      assert(!hasCoord(59.8, 24.8), 'overlapping B not added');
+
+      /* ── Test 12: capture B right before detour A (adjacent, no overlap) ── */
+      console.log('Test 12: capture B right before future detour A (adjacent)');
+      setup();
+      addDetour(50, 60, [[59.7, 24.7]]);
+      addDetour(30, 50, [[59.8, 24.8]]);
+      assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
+      assert(hasCoord(59.7, 24.7), 'detour A present');
+      assert(hasCoord(59.8, 24.8), 'detour B present');
+
+      /* ── Test 13: full handleOppTap simulation — user at 20, detour A at [50,60], capturing B ── */
+      console.log('Test 13: full handleOppTap sim — user on orig route, A ahead');
+      setup();
+      const dA13 = [];
+      for (let i = 0; i < 8; i++) dA13.push([59.5 + i * 0.002, 24.5 + i * 0.002]);
+      addDetour(50, 60, dA13);
+      assert(detours.length === 1, 'detour A added');
+
+      const cur13 = originalRoute[20];
+      let active13 = null;
+      let bestDist13 = Infinity;
+      for (const d of detours) {
+        const s = snapToRoute(cur13, d.coords);
+        if (s.distance < bestDist13) { bestDist13 = s.distance; active13 = d; }
+      }
+      const orig13 = snapToRoute(cur13, originalRoute);
+      let dept13;
+      if (active13 && bestDist13 <= orig13.distance) {
+        dept13 = active13.rejoinIdx;
+      } else {
+        active13 = null;
+        dept13 = orig13.index;
+        for (const d of detours) {
+          if (dept13 >= d.departIdx && dept13 < d.rejoinIdx) { active13 = d; dept13 = d.rejoinIdx; }
+        }
+      }
+      assert(active13 === null, 'user is NOT inside any detour');
+      assert(dept13 === 20, `departIdx=${dept13} should be 20`);
+
+      const rejoin13 = Math.max(35, dept13 + 1);
+      assert(rejoin13 === 35, `rejoinIdx=${rejoin13} should be 35`);
+
+      const dB13 = [[59.9, 24.9], [59.91, 24.91]];
+      addDetour(dept13, rejoin13, dB13);
+      assert(detours.length === 2, `detours.length=${detours.length} should be 2`);
+      assert(hasCoord(59.5, 24.5), 'detour A first coord still present');
+      assert(hasCoord(59.9, 24.9), 'detour B present');
+      assert(originalRoute.length === 100, 'originalRoute unchanged');
+
+      /* ── Test 14: truncation + rejection should restore coords ── */
+      console.log('Test 14: truncation + addDetour rejection restores coords');
+      setup();
+      const dA14 = [];
+      for (let i = 0; i < 10; i++) dA14.push([59.5 + i * 0.001, 24.5 + i * 0.001]);
+      addDetour(20, 30, dA14);
+      addDetour(35, 45, [[59.7, 24.7]]);
+      assert(detours.length === 2, 'A and existing B added');
+
+      const cur14 = dA14[5];
+      let active14 = null;
+      let bestDist14 = Infinity;
+      for (const d of detours) {
+        const s = snapToRoute(cur14, d.coords);
+        if (s.distance < bestDist14) { bestDist14 = s.distance; active14 = d; }
+      }
+      const orig14 = snapToRoute(cur14, originalRoute);
+      let dept14;
+      if (active14 && bestDist14 <= orig14.distance) {
+        dept14 = active14.rejoinIdx;
+      } else {
+        active14 = null;
+        dept14 = orig14.index;
+        for (const d of detours) {
+          if (dept14 >= d.departIdx && dept14 < d.rejoinIdx) { active14 = d; dept14 = d.rejoinIdx; }
+        }
+      }
+      assert(active14 !== null, 'detected inside detour A');
+      assert(dept14 === 30, `departIdx=${dept14} should be 30`);
+
+      const rejoin14 = 40;
+      if (active14) {
+        const snapIn14 = snapToRoute(cur14, active14.coords);
+        const saved14 = active14.coords;
+        active14.coords = active14.coords.slice(0, snapIn14.index + 1);
+        const added14 = addDetour(dept14, rejoin14, [[59.9, 24.9]]);
+        if (!added14) {
+          active14.coords = saved14;
+          buildEffectiveRoute();
+        }
+      }
+      assert(detours.length === 2, `detours.length=${detours.length} should still be 2`);
+      const a14 = detours.find(d => d.departIdx === 20);
+      assert(a14 && a14.coords.length === 10, `detour A coords=${a14?.coords.length} should be 10 (restored)`);
+      assert(hasCoord(59.7, 24.7), 'existing B still present');
 
       /* ── Restore ── */
       setup();
