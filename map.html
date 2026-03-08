@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strava Heatmap Route Planner</title>
+  <link rel="stylesheet" href="lib/leaflet.css">
+  <link rel="stylesheet" href="map.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <header class="sidebar-header">
+      <h1>Route Planner</h1>
+      <div id="auth-status" class="auth-badge disconnected">
+        <span class="auth-dot"></span>
+        <span id="auth-text">Checking Strava...</span>
+      </div>
+    </header>
+
+    <section class="sidebar-section">
+      <h2>Heatmap</h2>
+      <div class="control-row">
+        <label for="sport-select">Sport</label>
+        <select id="sport-select">
+          <option value="ride" selected>Cycling</option>
+          <option value="run">Running</option>
+          <option value="all">All Activities</option>
+          <option value="water">Water Sports</option>
+          <option value="winter">Winter Sports</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <label for="color-select">Color</label>
+        <select id="color-select">
+          <option value="mobileblue" selected>Blue</option>
+          <option value="hot">Hot</option>
+          <option value="bluered">Blue-Red</option>
+          <option value="purple">Purple</option>
+          <option value="gray">Gray</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <label for="opacity-slider">Opacity</label>
+        <div class="slider-group">
+          <input type="range" id="opacity-slider" min="10" max="100" value="70">
+          <span id="opacity-value">70%</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="sidebar-section">
+      <h2>Waypoints</h2>
+      <div id="waypoint-list" class="waypoint-list">
+        <p class="empty-state">Click the map to add waypoints</p>
+      </div>
+    </section>
+
+    <section class="sidebar-section">
+      <h2>Route</h2>
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="stat-label">Distance</span>
+          <span id="route-distance" class="stat-value">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Est. time</span>
+          <span id="route-duration" class="stat-value">—</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="sidebar-section actions">
+      <button id="btn-undo" class="btn btn-secondary" disabled>Undo</button>
+      <button id="btn-clear" class="btn btn-secondary" disabled>Clear All</button>
+      <button id="btn-export" class="btn btn-primary" disabled>Export GPX</button>
+    </section>
+
+    <footer class="sidebar-footer">
+      <p>Click map to add waypoints. Right-click a waypoint to remove it. Drag waypoints to adjust.</p>
+      <p>Export GPX and import into <a href="https://www.google.com/maps/d/" target="_blank" rel="noopener">Google My Maps</a>.</p>
+    </footer>
+  </aside>
+
+  <div id="map"></div>
+
+  <div id="toast-container"></div>
+
+  <script src="lib/leaflet.js"></script>
+  <script src="map.js"></script>
+</body>
+</html>
