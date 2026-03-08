@@ -299,6 +299,7 @@ async function updateRoute() {
 
     updateStats(route);
     updateButtons();
+    showToast('Route ready! Use "Send to Phone" or "Open in Google Maps".', 'success');
   } catch (err) {
     if (err.name === 'AbortError') return;
     console.error('Routing error:', err);
@@ -417,10 +418,22 @@ function sendToDevice() {
   const container = document.getElementById('qr-code');
   container.innerHTML = '';
 
-  const qr = qrcode(0, 'M');
-  qr.addData(mapsUrl);
-  qr.make();
-  container.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 8 });
+  try {
+    const qr = qrcode(0, 'L');
+    qr.addData(mapsUrl);
+    qr.make();
+    container.innerHTML = qr.createImgTag(6, 12);
+  } catch {
+    for (let t = 10; t <= 40; t++) {
+      try {
+        const qr = qrcode(t, 'L');
+        qr.addData(mapsUrl);
+        qr.make();
+        container.innerHTML = qr.createImgTag(6, 12);
+        break;
+      } catch { /* try next type */ }
+    }
+  }
 
   document.getElementById('qr-modal').hidden = false;
 }
