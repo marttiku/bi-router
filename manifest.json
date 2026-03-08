@@ -8,7 +8,8 @@
     "declarativeNetRequest"
   ],
   "host_permissions": [
-    "*://*.strava.com/*"
+    "*://*.strava.com/*",
+    "*://gis.tallinn.ee/*"
   ],
   "background": {
     "service_worker": "background.js"

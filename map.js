@@ -30,6 +30,8 @@ let routePolyline = null;
 let routeCoordinates = [];
 let stravaLayer = null;
 let authenticated = false;
+let bikeRoadsLayer = null;
+let bikeRoadsData = null;
 
 // ── Map Setup ────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([initParams.lat, initParams.lng], Math.round(initParams.zoom));
@@ -555,6 +557,76 @@ function showToast(message, type = 'info', duration = 3500) {
   container.appendChild(toast);
   setTimeout(() => toast.remove(), duration);
 }
+
+// ── Tallinn Bicycle Roads Layer ──────────────────────────────────
+const BIKE_ROADS_URL = 'https://gis.tallinn.ee/arcgis/rest/services/veebikaart/Kergliiklusteed_veebikaart/MapServer/0/query';
+
+const BIKE_ROAD_STYLES = {
+  1:  { color: '#005499', weight: 2, dashArray: '6 4' },  // marked lane on road
+  2:  { color: '#005499', weight: 2.5 },                  // bike & pedestrian path
+  3:  { color: '#005499', weight: 2, dashArray: '2 6' },  // planned
+  5:  { color: '#005499', weight: 2.5 },                  // bike road
+  6:  { color: '#005499', weight: 2, dashArray: '6 4' },  // marked lane on sidewalk
+};
+
+const BIKE_ROAD_LABELS = {
+  1: 'Marked lane on road',
+  2: 'Bike & pedestrian path',
+  3: 'Planned',
+  5: 'Bicycle road',
+  6: 'Marked lane on sidewalk',
+};
+
+function bikeRoadStyle(feature) {
+  const kind = feature.properties?.rattatee_liik;
+  return BIKE_ROAD_STYLES[kind] || { color: '#005499', weight: 2, opacity: 0.6 };
+}
+
+async function fetchBikeRoads() {
+  if (bikeRoadsData) return bikeRoadsData;
+
+  const params = new URLSearchParams({
+    where: '1=1',
+    outFields: 'rattatee_liik',
+    outSR: '4326',
+    f: 'geojson',
+  });
+
+  const resp = await fetch(`${BIKE_ROADS_URL}?${params}`);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  bikeRoadsData = await resp.json();
+  return bikeRoadsData;
+}
+
+async function toggleBikeRoads(show) {
+  if (!show) {
+    if (bikeRoadsLayer) { map.removeLayer(bikeRoadsLayer); }
+    return;
+  }
+
+  if (bikeRoadsLayer) { bikeRoadsLayer.addTo(map); return; }
+
+  try {
+    const geojson = await fetchBikeRoads();
+    bikeRoadsLayer = L.geoJSON(geojson, {
+      style: bikeRoadStyle,
+      interactive: true,
+      onEachFeature(feature, layer) {
+        const kind = feature.properties?.rattatee_liik;
+        const label = BIKE_ROAD_LABELS[kind] || `Type ${kind}`;
+        layer.bindTooltip(label, { sticky: true, className: 'bike-road-tooltip' });
+      },
+    }).addTo(map);
+  } catch (err) {
+    console.error('Failed to load bike roads:', err);
+    showToast('Could not load bicycle roads layer.', 'error');
+    document.getElementById('toggle-bike-roads').checked = false;
+  }
+}
+
+document.getElementById('toggle-bike-roads').addEventListener('change', (e) => {
+  toggleBikeRoads(e.target.checked);
+});
 
 // ── Heatmap Controls ─────────────────────────────────────────────
 document.getElementById('sport-select').addEventListener('change', () => initHeatmap());
