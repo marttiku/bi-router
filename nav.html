@@ -246,6 +246,14 @@
       white-space: nowrap;
       box-shadow: 0 2px 6px rgba(0,0,0,0.5);
     }
+    .opp-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+    .opp-dot.red { background: #ef5350; }
+    .opp-dot.yellow { background: #ffd54f; }
 
     .leaflet-tile-pane { filter: brightness(0.85) saturate(0.8); }
 
@@ -965,14 +973,20 @@
     /* ── Opportunity card rendering ───────────── */
     const shownOppKeys = new Set();
     let renderedOppSignature = '';
+    const oppDotMarkers = [];
 
     function renderOppCards(force) {
       const sig = opportunities.map(o => `${o.key}:${o.type}:${o.label}`).join('|');
       if (!force && sig === renderedOppSignature) return;
+      const hadNew = sig !== renderedOppSignature;
       renderedOppSignature = sig;
+
+      oppDotMarkers.forEach(m => map.removeLayer(m));
+      oppDotMarkers.length = 0;
 
       oppStrip.innerHTML = '';
       const currentKeys = new Set();
+      const dotPoints = [];
       for (const opp of opportunities) {
         currentKeys.add(opp.key);
         const isNew = !shownOppKeys.has(opp.key);
@@ -988,9 +1002,32 @@
         card.appendChild(btn);
         oppStrip.appendChild(card);
         if (isNew) card.addEventListener('animationend', () => card.classList.remove('new'));
+
+        const dotPos = opp.borderPt || opp.viaPoints?.[0] || tileCenter(opp.key, opp.z);
+        const dot = L.marker(dotPos, {
+          icon: L.divIcon({
+            className: '',
+            html: `<div class="opp-dot ${opp.type}"></div>`,
+            iconSize: [12, 12], iconAnchor: [6, 6],
+          }),
+          zIndexOffset: 600,
+          interactive: false,
+        }).addTo(map);
+        oppDotMarkers.push(dot);
+        dotPoints.push(dotPos);
       }
       shownOppKeys.clear();
       currentKeys.forEach(k => shownOppKeys.add(k));
+
+      if (hadNew && dotPoints.length > 0 && following) {
+        const curPos = gpsDot.getLatLng();
+        const pts = [[curPos.lat, curPos.lng], ...dotPoints];
+        const bounds = L.latLngBounds(pts.map(p => L.latLng(p[0], p[1])));
+        const currentBounds = map.getBounds();
+        if (!currentBounds.contains(bounds)) {
+          map.fitBounds(bounds, { padding: [40, 40], maxZoom: map.getZoom(), animate: !devMode });
+        }
+      }
     }
 
     /* ── BRouter detour fetch ─────────────────── */
