@@ -414,8 +414,14 @@ function sendToDevice() {
   const mapsUrl = buildGoogleMapsUrl();
   if (!mapsUrl) return;
 
-  const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(mapsUrl)}`;
-  document.getElementById('qr-code').src = qrApiUrl;
+  const container = document.getElementById('qr-code');
+  container.innerHTML = '';
+
+  const qr = qrcode(0, 'M');
+  qr.addData(mapsUrl);
+  qr.make();
+  container.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 8 });
+
   document.getElementById('qr-modal').hidden = false;
 }
 
