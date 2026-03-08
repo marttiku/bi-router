@@ -1127,8 +1127,11 @@
         return;
       }
 
-      const removeCount = Math.min(rejoinIdx, route.length - 1) - snap.index;
-      console.log(`[opp] Splicing route: snap=${snap.index}, rejoin=${rejoinIdx}, remove=${removeCount}, insert=${detour.coords.length} pts`);
+      const detourEnd = detour.coords[detour.coords.length - 1];
+      const rejoinSnap = snapToRoute(detourEnd, route);
+      const actualRejoin = Math.max(rejoinSnap.index, snap.index + 1);
+      const removeCount = actualRejoin - snap.index;
+      console.log(`[opp] Splicing route: snap=${snap.index}, rejoin=${actualRejoin}, remove=${removeCount}, insert=${detour.coords.length} pts`);
       route.splice(snap.index, Math.max(removeCount, 1), ...detour.coords);
       routeLine.setLatLngs(route);
       totalDistVar = routeLength(route);
