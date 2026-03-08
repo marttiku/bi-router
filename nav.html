@@ -596,6 +596,16 @@
     }
 
     function addDetour(departIdx, rejoinIdx, coords) {
+      if (departIdx >= rejoinIdx) {
+        console.log(`[opp] Skipping invalid detour: depart=${departIdx} >= rejoin=${rejoinIdx}`);
+        return;
+      }
+      for (const d of detours) {
+        if (departIdx < d.rejoinIdx && rejoinIdx > d.departIdx) {
+          console.log(`[opp] Skipping overlapping detour: [${departIdx},${rejoinIdx}] overlaps [${d.departIdx},${d.rejoinIdx}]`);
+          return;
+        }
+      }
       const entry = { departIdx, rejoinIdx, coords };
       detours.push(entry);
       detours.sort((a, b) => a.departIdx - b.departIdx);
@@ -1146,8 +1156,13 @@
       if (card) card.querySelector('.opp-btn').textContent = '…';
 
       const departSnap = snapToRoute(curPt, originalRoute);
-      const departIdx = departSnap.index;
-      const rejoinIdx = cached.rejoinIdx;
+      let departIdx = departSnap.index;
+      for (const d of detours) {
+        if (departIdx >= d.departIdx && departIdx < d.rejoinIdx) {
+          departIdx = d.rejoinIdx;
+        }
+      }
+      const rejoinIdx = Math.max(cached.rejoinIdx, departIdx + 1);
       const to = originalRoute[rejoinIdx];
       const viaPoints = opp.viaPoints || [];
       const detourResult = await fetchDetourRoute([curPt, ...viaPoints, to]);
