@@ -719,7 +719,13 @@
         }
       }
       if ((newSq || newInho) && sqLayer) sqLayer.redraw();
-      if (newSq || newInho) showCaptureToast(newSq, newInho);
+      if (newSq || newInho) {
+        showCaptureToast(newSq, newInho);
+        if (sqOppEnabled) {
+          oppRouteCache.clear();
+          lastScanTime = 0;
+        }
+      }
       updateSqStats();
     }
 
