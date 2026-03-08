@@ -970,7 +970,7 @@
         extraDist: Math.max(0, extraDist),
         tiles: opp.tiles,
         routeIdx: opp.routeIdx,
-        rejoinIdx: opp.rejoinIdx,
+        rejoinPt: to,
       });
 
       scanOpportunities(lastScanSnapIdx);
@@ -1115,7 +1115,9 @@
       const card = oppStrip.children[idx];
       if (card) card.querySelector('.opp-btn').textContent = '…';
 
-      const rejoinIdx = Math.max(cached.rejoinIdx, snap.index + 1);
+      const rejoinPt = cached.rejoinPt;
+      const rejoinSnap = snapToRoute(rejoinPt, route);
+      const rejoinIdx = Math.max(rejoinSnap.index, snap.index + 1);
       const to = route[Math.min(rejoinIdx, route.length - 1)];
       const viaPoints = opp.viaPoints || [cached.route.coords[Math.floor(cached.route.coords.length / 2)]];
       const detour = await fetchDetourRoute([curPt, ...viaPoints, to]);
@@ -1128,8 +1130,8 @@
       }
 
       const detourEnd = detour.coords[detour.coords.length - 1];
-      const rejoinSnap = snapToRoute(detourEnd, route);
-      const actualRejoin = Math.max(rejoinSnap.index, snap.index + 1);
+      const endSnap = snapToRoute(detourEnd, route);
+      const actualRejoin = Math.max(endSnap.index, snap.index + 1);
       const removeCount = actualRejoin - snap.index;
       console.log(`[opp] Splicing route: snap=${snap.index}, rejoin=${actualRejoin}, remove=${removeCount}, insert=${detour.coords.length} pts`);
       route.splice(snap.index, Math.max(removeCount, 1), ...detour.coords);
