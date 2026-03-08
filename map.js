@@ -299,7 +299,6 @@ async function updateRoute() {
 
     updateStats(route);
     updateButtons();
-    showToast('Route ready! Use "Send to Phone" or "Open in Google Maps".', 'success');
   } catch (err) {
     if (err.name === 'AbortError') return;
     console.error('Routing error:', err);
@@ -422,17 +421,36 @@ function sendToDevice() {
     const qr = qrcode(0, 'L');
     qr.addData(mapsUrl);
     qr.make();
-    container.innerHTML = qr.createImgTag(6, 12);
-  } catch {
-    for (let t = 10; t <= 40; t++) {
-      try {
-        const qr = qrcode(t, 'L');
-        qr.addData(mapsUrl);
-        qr.make();
-        container.innerHTML = qr.createImgTag(6, 12);
-        break;
-      } catch { /* try next type */ }
+
+    const moduleCount = qr.getModuleCount();
+    const cellSize = Math.max(4, Math.floor(240 / moduleCount));
+    const size = moduleCount * cellSize;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#000000';
+
+    for (let r = 0; r < moduleCount; r++) {
+      for (let c = 0; c < moduleCount; c++) {
+        if (qr.isDark(r, c)) {
+          ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+        }
+      }
     }
+
+    const img = document.createElement('img');
+    img.src = canvas.toDataURL();
+    img.width = 250;
+    img.height = 250;
+    img.alt = 'QR Code';
+    container.appendChild(img);
+  } catch (err) {
+    container.textContent = 'Could not generate QR code';
+    console.error('QR generation failed:', err);
   }
 
   document.getElementById('qr-modal').hidden = false;

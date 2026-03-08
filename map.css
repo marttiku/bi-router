@@ -407,6 +407,10 @@ body {
   justify-content: center;
 }
 
+.modal-overlay[hidden] {
+  display: none;
+}
+
 .modal {
   background: #1a1a2e;
   border: 1px solid #2a2a4a;
