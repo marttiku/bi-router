@@ -1313,35 +1313,50 @@
       }
 
       function startPlayback() {
-        const TICK_MS = 200;
+        const TICK_MS = 50;
         const segLengths = [];
         for (let i = 1; i < route.length; i++) {
           segLengths.push(haversine(route[i - 1], route[i]));
         }
-        let accumDist = 0;
+        let playIdx = parseInt(devSlider.value);
+        let playFrac = 0;
 
         playBtn.textContent = '⏸';
         playInterval = setInterval(() => {
           const mps = BASE_MPS * SPEED_STEPS[speedIdx];
-          accumDist += mps * (TICK_MS / 1000);
-          let idx = parseInt(devSlider.value);
-          while (idx < route.length - 1 && accumDist > 0) {
-            const seg = segLengths[idx] || 0;
-            if (accumDist >= seg) {
-              accumDist -= seg;
-              idx++;
+          let dist = mps * (TICK_MS / 1000);
+
+          while (dist > 0 && playIdx < route.length - 1) {
+            const seg = segLengths[playIdx] || 0.001;
+            const remaining = seg * (1 - playFrac);
+            if (dist >= remaining) {
+              dist -= remaining;
+              playIdx++;
+              playFrac = 0;
             } else {
-              break;
+              playFrac += dist / seg;
+              dist = 0;
             }
           }
-          if (idx >= route.length - 1) {
+
+          if (playIdx >= route.length - 1) {
             devSlider.value = route.length - 1;
             simulateAt(route.length - 1);
             stopPlayback();
             return;
           }
-          devSlider.value = idx;
-          simulateAt(idx);
+
+          const a = route[playIdx], b = route[playIdx + 1];
+          const lat = a[0] + (b[0] - a[0]) * playFrac;
+          const lng = a[1] + (b[1] - a[1]) * playFrac;
+
+          devSlider.value = playIdx;
+          const pct = Math.round(playIdx / (route.length - 1) * 100);
+          devLabel.textContent = `${pct}%`;
+          lastScanTime = 0;
+          onPosition({
+            coords: { latitude: lat, longitude: lng, speed: mps }
+          });
         }, TICK_MS);
       }
 
