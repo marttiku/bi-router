@@ -404,18 +404,31 @@ function openInGoogleMaps() {
 function buildGoogleMapsUrl() {
   if (waypoints.length < 2) return null;
 
-  const points = waypoints.map(w => {
-    const ll = w.marker.getLatLng();
-    return `${ll.lat},${ll.lng}`;
-  });
+  const startLL = waypoints[0].marker.getLatLng();
+  const endLL = waypoints[waypoints.length - 1].marker.getLatLng();
+  const origin = `${startLL.lat},${startLL.lng}`;
+  const destination = `${endLL.lat},${endLL.lng}`;
 
-  const origin = points[0];
-  const destination = points[points.length - 1];
-  const intermediate = points.slice(1, -1).join('|');
+  const maxWaypoints = 23;
+  let intermediatePoints = [];
+
+  if (routeCoordinates.length > 2) {
+    const step = Math.max(1, Math.floor(routeCoordinates.length / (maxWaypoints + 1)));
+    for (let i = step; i < routeCoordinates.length - 1; i += step) {
+      if (intermediatePoints.length >= maxWaypoints) break;
+      const [lat, lng] = routeCoordinates[i];
+      intermediatePoints.push(`${lat},${lng}`);
+    }
+  } else {
+    intermediatePoints = waypoints.slice(1, -1).map(w => {
+      const ll = w.marker.getLatLng();
+      return `${ll.lat},${ll.lng}`;
+    });
+  }
 
   let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=bicycling`;
-  if (intermediate) {
-    url += `&waypoints=${intermediate}`;
+  if (intermediatePoints.length > 0) {
+    url += `&waypoints=${intermediatePoints.join('|')}`;
   }
   return url;
 }
