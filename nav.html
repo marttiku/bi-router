@@ -443,6 +443,7 @@
     const SQ_Z = 14, SQINHO_Z = 17;
     let sqSet14 = null, sqSet17 = null;
     let sqDataLoaded = false;
+    let sqLayer = null;
 
     /* ── Tile coord helpers ────────────────────── */
     function lon2tile(lng, z) { return Math.floor((lng + 180) / 360 * (1 << z)); }
@@ -499,21 +500,27 @@
 
     function checkSqCapture(cur) {
       if (!sqSet14 && !sqSet17) return;
+      let changed = false;
       if (sqSet14) {
         const key14 = `${lon2tile(cur[1], SQ_Z)}-${lat2tile(cur[0], SQ_Z)}`;
         if (!sqSet14.has(key14) && !capturedSet14.has(key14)) {
           capturedSet14.add(key14);
+          sqSet14.add(key14);
           sqCapturedCount++;
           sqOnRouteSet.delete(key14);
+          changed = true;
         }
       }
       if (sqSet17) {
         const key17 = `${lon2tile(cur[1], SQINHO_Z)}-${lat2tile(cur[0], SQINHO_Z)}`;
         if (!sqSet17.has(key17) && !capturedSet17.has(key17)) {
           capturedSet17.add(key17);
+          sqSet17.add(key17);
           inhoCapturedCount++;
+          changed = true;
         }
       }
+      if (changed && sqLayer) sqLayer.redraw();
       updateSqStats();
     }
 
@@ -578,7 +585,7 @@
           return c;
         }
       });
-      new SqLayer().addTo(map);
+      sqLayer = new SqLayer().addTo(map);
     }
 
     /* ── Opportunity scanning ─────────────────── */
