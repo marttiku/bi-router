@@ -1078,16 +1078,22 @@ let optimizeDebounce = null;
 let optimizeAbort = null;
 
 const SEARCH_RADIUS_M = 500;
+const MAX_SEARCH_RADIUS_M = 5000;
 const DETOUR_ROAD_FACTOR = 1.4;
 const MAX_VIA_POINTS = 15;
 const CLUSTER_RADIUS_M = 300;
+const CORRIDOR_BUDGET_SHARE = 0.5;
+const MIN_CORRIDOR_BUDGET_PCT = 10;
+const CORRIDOR_ANCHOR_INTERVAL_KM = 10;
+const MAX_CORRIDOR_ANCHORS = 5;
 
 function scanSquadratinhoOpportunities(routeCoords, radiusM) {
   const rawSet = sqRaw[SQINHO_ZOOM];
   if (!rawSet || routeCoords.length < 2) return [];
 
   const candidates = new Map();
-  const step = Math.max(1, Math.floor(routeCoords.length / 500));
+  const maxSamples = radiusM > SEARCH_RADIUS_M ? 200 : 500;
+  const step = Math.max(1, Math.floor(routeCoords.length / maxSamples));
 
   for (let i = 0; i < routeCoords.length; i += step) {
     const [lat, lng] = routeCoords[i];
@@ -1163,13 +1169,13 @@ function clusterDetourCandidates(candidates) {
   return clusters;
 }
 
-function selectDetours(clusters, budgetKm) {
+function selectDetours(clusters, budgetKm, maxVias = MAX_VIA_POINTS) {
   const sorted = clusters.slice().sort((a, b) => b.efficiency - a.efficiency);
   const selected = [];
   let usedKm = 0;
 
   for (const cl of sorted) {
-    if (selected.length >= MAX_VIA_POINTS) break;
+    if (selected.length >= maxVias) break;
     const costKm = cl.estimatedDetourM / 1000;
     if (usedKm + costKm > budgetKm) continue;
     selected.push(cl);
@@ -1219,6 +1225,77 @@ function buildOptimizedWaypoints(userWaypoints, selectedClusters, routeCoords) {
   return result;
 }
 
+async function fetchAlternatives(lonlatPairs, signal) {
+  const promises = [0, 1, 2, 3].map(async (idx) => {
+    try {
+      const lonlats = lonlatPairs.map(([lng, lat]) => `${lng},${lat}`).join('|');
+      const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=trekking&alternativeidx=${idx}&format=geojson`;
+      const resp = await fetch(url, { signal });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const feat = data.features?.[0];
+      if (!feat) return null;
+      return {
+        idx,
+        distance: parseFloat(feat.properties['track-length']),
+        coordinates: feat.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      };
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      return null;
+    }
+  });
+  return (await Promise.all(promises)).filter(Boolean);
+}
+
+function selectBestCorridor(alternatives, baseDistKm, budgetKm, rawSet) {
+  if (alternatives.length <= 1) return null;
+
+  const corridorBudgetKm = budgetKm * CORRIDOR_BUDGET_SHARE;
+  const baseAlt = alternatives.find(a => a.idx === 0);
+  const baseTiles = baseAlt
+    ? getRouteNewTilesFromCoords(baseAlt.coordinates, SQINHO_ZOOM, rawSet)
+    : null;
+  const baseCount = baseTiles?.size || 0;
+
+  let best = null;
+  let bestExtra = 0;
+
+  for (const alt of alternatives) {
+    if (alt.idx === 0) continue;
+    const altDistKm = alt.distance / 1000;
+    const extraDistKm = Math.max(0, altDistKm - baseDistKm);
+    if (extraDistKm > corridorBudgetKm) continue;
+
+    const altTiles = getRouteNewTilesFromCoords(alt.coordinates, SQINHO_ZOOM, rawSet);
+    const altCount = altTiles?.size || 0;
+    const extraTiles = altCount - baseCount;
+
+    if (extraTiles > bestExtra) {
+      bestExtra = extraTiles;
+      best = { ...alt, distanceKm: altDistKm, extraDistKm, extraTiles };
+    }
+  }
+
+  return best;
+}
+
+function getCorridorAnchors(corridorCoords, corridorDistKm) {
+  const numAnchors = Math.max(1, Math.min(
+    MAX_CORRIDOR_ANCHORS,
+    Math.floor(corridorDistKm / CORRIDOR_ANCHOR_INTERVAL_KM)
+  ));
+  const anchors = [];
+  const interval = Math.floor(corridorCoords.length / (numAnchors + 1));
+  for (let i = 1; i <= numAnchors; i++) {
+    const idx = i * interval;
+    if (idx > 0 && idx < corridorCoords.length - 1) {
+      anchors.push({ routeIdx: idx, viaPoint: corridorCoords[idx] });
+    }
+  }
+  return anchors;
+}
+
 async function runOptimization() {
   const statusEl = document.getElementById('detour-status');
 
@@ -1236,24 +1313,70 @@ async function runOptimization() {
   await new Promise(r => setTimeout(r, 50));
   if (controller.signal.aborted) return;
 
-  const candidates = scanSquadratinhoOpportunities(baseRouteCoordinates, SEARCH_RADIUS_M);
-  if (candidates.length === 0) {
-    statusEl.innerHTML = '<span class="detour-none">No nearby squadratinhos found</span>';
-    clearOptimization();
-    return;
+  const totalBudgetKm = baseRouteDistanceKm * (detourBudgetPct / 100);
+  const rawSet = sqRaw[SQINHO_ZOOM];
+
+  // ── Phase 1: Explore alternative corridors ──
+  let corridorCoords = baseRouteCoordinates;
+  let corridorDistKm = baseRouteDistanceKm;
+  let corridorAnchors = [];
+  let corridorCostKm = 0;
+  let corridorExtraTiles = 0;
+
+  if (detourBudgetPct >= MIN_CORRIDOR_BUDGET_PCT && waypoints.length >= 2) {
+    statusEl.innerHTML = '<span class="detour-computing">Exploring corridors…</span>';
+
+    const lonlatPairs = waypoints.map(w => {
+      const ll = w.marker.getLatLng();
+      return [ll.lng, ll.lat];
+    });
+
+    const alternatives = await fetchAlternatives(lonlatPairs, controller.signal);
+    if (controller.signal.aborted) return;
+
+    const best = selectBestCorridor(alternatives, baseRouteDistanceKm, totalBudgetKm, rawSet);
+    if (best) {
+      corridorCoords = best.coordinates;
+      corridorDistKm = best.distanceKm;
+      corridorCostKm = best.extraDistKm;
+      corridorExtraTiles = best.extraTiles;
+      corridorAnchors = getCorridorAnchors(corridorCoords, corridorDistKm);
+    }
   }
 
+  if (controller.signal.aborted) return;
+  statusEl.innerHTML = '<span class="detour-computing">Scanning detours…</span>';
+
+  // ── Phase 2: Near-route detours with budget-scaled radius ──
+  const remainingBudgetKm = totalBudgetKm - corridorCostKm;
+  const effectiveRadius = Math.min(
+    SEARCH_RADIUS_M + remainingBudgetKm * 200,
+    MAX_SEARCH_RADIUS_M
+  );
+
+  const candidates = scanSquadratinhoOpportunities(corridorCoords, effectiveRadius);
   const clusters = clusterDetourCandidates(candidates);
-  const budgetKm = baseRouteDistanceKm * (detourBudgetPct / 100);
-  const selected = selectDetours(clusters, budgetKm);
+  const maxDetourVias = MAX_VIA_POINTS - corridorAnchors.length;
+  const selected = selectDetours(clusters, remainingBudgetKm, maxDetourVias);
 
-  if (selected.length === 0) {
-    statusEl.innerHTML = '<span class="detour-none">Budget too small for detours</span>';
-    clearOptimization();
-    return;
+  const allViaPoints = [
+    ...corridorAnchors,
+    ...selected,
+  ].sort((a, b) => a.routeIdx - b.routeIdx);
+
+  if (allViaPoints.length === 0) {
+    if (corridorExtraTiles === 0) {
+      statusEl.innerHTML = candidates.length === 0
+        ? '<span class="detour-none">No nearby squadratinhos found</span>'
+        : '<span class="detour-none">Budget too small for detours</span>';
+      clearOptimization();
+      return;
+    }
+    const midIdx = Math.floor(corridorCoords.length / 2);
+    allViaPoints.push({ routeIdx: midIdx, viaPoint: corridorCoords[midIdx] });
   }
 
-  const expandedWaypoints = buildOptimizedWaypoints(waypoints, selected, baseRouteCoordinates);
+  const expandedWaypoints = buildOptimizedWaypoints(waypoints, allViaPoints, corridorCoords);
   if (!expandedWaypoints || controller.signal.aborted) return;
 
   const lonlatPairs = expandedWaypoints.map(([lat, lng]) => [lng, lat]);
@@ -1308,7 +1431,15 @@ async function runOptimization() {
       : `${Math.round(optimizedDistKm)} km`;
     updateDuration();
 
-    statusEl.innerHTML = `<span class="detour-result"><strong>+${extraInhos > 0 ? extraInhos : newInhos?.size || 0}</strong> inhos · <strong>+${deltaKm.toFixed(1)} km</strong> (+${deltaPct}%)</span>`;
+    const statusParts = [];
+    if (corridorExtraTiles > 0) statusParts.push(`corridor +${corridorExtraTiles}`);
+    const detourTiles = extraInhos - corridorExtraTiles;
+    if (selected.length > 0 && detourTiles > 0) statusParts.push(`detours +${detourTiles}`);
+    const tileSummary = statusParts.length > 0
+      ? statusParts.join(', ')
+      : `+${extraInhos > 0 ? extraInhos : newInhos?.size || 0}`;
+
+    statusEl.innerHTML = `<span class="detour-result"><strong>${tileSummary}</strong> inhos · <strong>+${deltaKm.toFixed(1)} km</strong> (+${deltaPct}%)</span>`;
 
     updateSqNewLayer();
   } catch (err) {
