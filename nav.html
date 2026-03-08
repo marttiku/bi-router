@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Route Navigation</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #111;
+      color: #e0e0e0;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #stats-bar {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      padding: 10px 12px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #2a2a4a;
+      z-index: 1000;
+      flex-shrink: 0;
+    }
+
+    .stat-box {
+      text-align: center;
+      flex: 1;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #8888aa;
+    }
+
+    .stat-val {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      margin-top: 2px;
+    }
+
+    .stat-val.accent { color: #4fc3f7; }
+
+    #map {
+      flex: 1;
+      width: 100%;
+    }
+
+    #controls {
+      position: absolute;
+      bottom: 24px;
+      right: 16px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .map-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: none;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-size: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .map-btn:active { background: #2a2a4a; }
+    .map-btn.active { background: #005499; color: #fff; }
+
+    #compass-box {
+      position: absolute;
+      bottom: 24px;
+      left: 16px;
+      z-index: 1000;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: #1a1a2e;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #compass-arrow {
+      font-size: 32px;
+      transition: transform 0.3s ease-out;
+      color: #4fc3f7;
+    }
+
+    #error-screen {
+      position: fixed;
+      inset: 0;
+      background: #1a1a2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 24px;
+      text-align: center;
+    }
+
+    #error-screen p {
+      font-size: 16px;
+      line-height: 1.6;
+      color: #b0b0cc;
+      max-width: 320px;
+    }
+
+    #error-screen .err-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 12px;
+    }
+
+    .gps-dot {
+      width: 18px;
+      height: 18px;
+      background: #4285f4;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 8px rgba(66,133,244,0.6);
+    }
+
+    .gps-pulse {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(66,133,244,0.2);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      animation: pulse 2s ease-out infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+    }
+
+    .start-flag, .end-flag {
+      font-size: 20px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+
+    .leaflet-tile-pane { filter: brightness(0.85) saturate(0.8); }
+  </style>
+</head>
+<body>
+
+  <div id="stats-bar">
+    <div class="stat-box">
+      <div class="stat-label">Remaining</div>
+      <div class="stat-val accent" id="dist-remaining">—</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">ETA</div>
+      <div class="stat-val" id="eta">—</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Progress</div>
+      <div class="stat-val" id="progress">—</div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <div id="controls">
+    <button class="map-btn active" id="btn-center" title="Re-center">⊕</button>
+    <button class="map-btn" id="btn-lock" title="Keep screen on">☀</button>
+  </div>
+
+  <div id="compass-box">
+    <div id="compass-arrow">↑</div>
+  </div>
+
+  <div id="error-screen" style="display:none">
+    <div>
+      <p class="err-title" id="err-title">Error</p>
+      <p id="err-msg"></p>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    /* ── Polyline Decoding ─────────────────────── */
+    function decodePolyline(encoded) {
+      const points = [];
+      let i = 0, lat = 0, lng = 0;
+      while (i < encoded.length) {
+        let b, shift = 0, result = 0;
+        do { b = encoded.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+        shift = 0; result = 0;
+        do { b = encoded.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+        points.push([lat / 1e5, lng / 1e5]);
+      }
+      return points;
+    }
+
+    /* ── Geo Helpers ───────────────────────────── */
+    const R = 6371000;
+    const toRad = d => d * Math.PI / 180;
+    const toDeg = r => r * 180 / Math.PI;
+
+    function haversine(a, b) {
+      const dLat = toRad(b[0] - a[0]), dLng = toRad(b[1] - a[1]);
+      const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+    }
+
+    function bearing(a, b) {
+      const dLng = toRad(b[1] - a[1]);
+      const y = Math.sin(dLng) * Math.cos(toRad(b[0]));
+      const x = Math.cos(toRad(a[0])) * Math.sin(toRad(b[0])) -
+                Math.sin(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.cos(dLng);
+      return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    function routeLength(pts) {
+      let d = 0;
+      for (let i = 1; i < pts.length; i++) d += haversine(pts[i-1], pts[i]);
+      return d;
+    }
+
+    function snapToRoute(pos, pts) {
+      let minDist = Infinity, bestIdx = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const d = haversine(pos, pts[i]);
+        if (d < minDist) { minDist = d; bestIdx = i; }
+      }
+      return { index: bestIdx, distance: minDist };
+    }
+
+    /* ── Error Handling ────────────────────────── */
+    function showError(title, msg) {
+      document.getElementById('err-title').textContent = title;
+      document.getElementById('err-msg').textContent = msg;
+      document.getElementById('error-screen').style.display = 'flex';
+    }
+
+    /* ── Parse Route ───────────────────────────── */
+    const hash = window.location.hash.slice(1);
+    if (!hash) {
+      showError('No Route', 'Scan a QR code from the Route Planner to start navigation.');
+    }
+
+    let route;
+    try {
+      route = decodePolyline(decodeURIComponent(hash));
+      if (route.length < 2) throw new Error('Too few points');
+    } catch (e) {
+      showError('Invalid Route', 'Could not decode the route data. Please scan the QR code again.');
+    }
+
+    if (!route) { throw new Error('abort'); }
+
+    const totalDist = routeLength(route);
+
+    /* ── Map Setup ─────────────────────────────── */
+    const map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false,
+    }).fitBounds(route.map(p => [p[0], p[1]]), { padding: [30, 30] });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    L.polyline(route, {
+      color: '#4fc3f7',
+      weight: 5,
+      opacity: 0.9,
+      lineCap: 'round',
+    }).addTo(map);
+
+    const travelledLine = L.polyline([], {
+      color: '#888',
+      weight: 5,
+      opacity: 0.5,
+      lineCap: 'round',
+    }).addTo(map);
+
+    L.marker(route[0], {
+      icon: L.divIcon({ className: '', html: '<div class="start-flag">🟢</div>', iconSize: [24, 24], iconAnchor: [12, 12] }),
+    }).addTo(map);
+
+    L.marker(route[route.length - 1], {
+      icon: L.divIcon({ className: '', html: '<div class="end-flag">🏁</div>', iconSize: [24, 24], iconAnchor: [12, 12] }),
+    }).addTo(map);
+
+    const gpsDot = L.marker([0, 0], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div class="gps-pulse"></div><div class="gps-dot"></div>',
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      }),
+      zIndexOffset: 1000,
+    });
+
+    /* ── State ─────────────────────────────────── */
+    let following = true;
+    let wakeLock = null;
+
+    const distEl = document.getElementById('dist-remaining');
+    const etaEl = document.getElementById('eta');
+    const progEl = document.getElementById('progress');
+    const arrowEl = document.getElementById('compass-arrow');
+
+    /* ── GPS Tracking ──────────────────────────── */
+    if (!navigator.geolocation) {
+      showError('GPS Unavailable', 'Your browser does not support geolocation.');
+    } else {
+      navigator.geolocation.watchPosition(onPosition, onGpsError, {
+        enableHighAccuracy: true,
+        maximumAge: 3000,
+        timeout: 15000,
+      });
+    }
+
+    function onPosition(pos) {
+      const cur = [pos.coords.latitude, pos.coords.longitude];
+      gpsDot.setLatLng(cur);
+      if (!map.hasLayer(gpsDot)) gpsDot.addTo(map);
+
+      const snap = snapToRoute(cur, route);
+      const remaining = routeLength(route.slice(snap.index));
+      const covered = totalDist - remaining;
+      const pct = Math.min(100, Math.round((covered / totalDist) * 100));
+
+      travelledLine.setLatLngs(route.slice(0, snap.index + 1));
+
+      if (remaining < 1000) {
+        distEl.textContent = `${Math.round(remaining)} m`;
+      } else {
+        distEl.textContent = `${(remaining / 1000).toFixed(1)} km`;
+      }
+
+      const walkSpeedMs = 5 / 3.6;
+      const etaMins = Math.round(remaining / walkSpeedMs / 60);
+      if (etaMins < 60) {
+        etaEl.textContent = `${etaMins} min`;
+      } else {
+        const h = Math.floor(etaMins / 60);
+        const m = etaMins % 60;
+        etaEl.textContent = `${h}h ${m}m`;
+      }
+
+      progEl.textContent = `${pct}%`;
+
+      const nextIdx = Math.min(snap.index + 3, route.length - 1);
+      const brng = bearing(cur, route[nextIdx]);
+      arrowEl.style.transform = `rotate(${brng}deg)`;
+
+      if (remaining < 30) {
+        distEl.textContent = 'Arrived';
+        etaEl.textContent = '—';
+        arrowEl.style.transform = 'rotate(0deg)';
+      }
+
+      if (following) {
+        map.setView(cur, Math.max(map.getZoom(), 16), { animate: true });
+      }
+    }
+
+    function onGpsError(err) {
+      console.warn('GPS error:', err.message);
+      distEl.textContent = '—';
+    }
+
+    /* ── Controls ──────────────────────────────── */
+    const centerBtn = document.getElementById('btn-center');
+    const lockBtn = document.getElementById('btn-lock');
+
+    centerBtn.addEventListener('click', () => {
+      following = true;
+      centerBtn.classList.add('active');
+      const ll = gpsDot.getLatLng();
+      if (ll.lat !== 0 || ll.lng !== 0) {
+        map.setView(ll, Math.max(map.getZoom(), 16), { animate: true });
+      }
+    });
+
+    map.on('dragstart', () => {
+      following = false;
+      centerBtn.classList.remove('active');
+    });
+
+    lockBtn.addEventListener('click', async () => {
+      if (wakeLock) {
+        wakeLock.release();
+        wakeLock = null;
+        lockBtn.classList.remove('active');
+        return;
+      }
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        lockBtn.classList.add('active');
+        wakeLock.addEventListener('release', () => {
+          wakeLock = null;
+          lockBtn.classList.remove('active');
+        });
+      } catch (e) {
+        console.warn('Wake Lock not supported:', e);
+      }
+    });
+  </script>
+</body>
+</html>

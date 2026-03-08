@@ -398,7 +398,7 @@ function updateButtons() {
   document.getElementById('btn-return-start').disabled = waypoints.length < 2;
   document.getElementById('btn-export').disabled = routeCoordinates.length === 0;
   document.getElementById('btn-google').disabled = waypoints.length < 2;
-  document.getElementById('btn-send-device').disabled = waypoints.length < 2;
+  document.getElementById('btn-send-device').disabled = routeCoordinates.length < 2;
 
   if (!hasWp && deleteMode) toggleDeleteMode();
 }
@@ -408,6 +408,57 @@ function toggleDeleteMode() {
   const btn = document.getElementById('btn-delete-mode');
   btn.classList.toggle('active', deleteMode);
   document.getElementById('map').style.cursor = deleteMode ? 'crosshair' : '';
+}
+
+// ── Polyline Encoding & Route Simplification ─────────────────────
+function encodePolyline(coords) {
+  let prev = [0, 0], out = '';
+  for (const [lat, lng] of coords) {
+    const rounded = [Math.round(lat * 1e5), Math.round(lng * 1e5)];
+    for (const val of [rounded[0] - prev[0], rounded[1] - prev[1]]) {
+      let v = val < 0 ? ~(val << 1) : (val << 1);
+      while (v >= 0x20) { out += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; }
+      out += String.fromCharCode(v + 63);
+    }
+    prev = rounded;
+  }
+  return out;
+}
+
+function perpendicularDist(pt, a, b) {
+  const [x, y] = pt, [x1, y1] = a, [x2, y2] = b;
+  const dx = x2 - x1, dy = y2 - y1;
+  const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy));
+}
+
+function douglasPeucker(pts, epsilon) {
+  if (pts.length <= 2) return pts;
+  let maxDist = 0, maxIdx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = perpendicularDist(pts[i], pts[0], pts[pts.length - 1]);
+    if (d > maxDist) { maxDist = d; maxIdx = i; }
+  }
+  if (maxDist <= epsilon) return [pts[0], pts[pts.length - 1]];
+  const left = douglasPeucker(pts.slice(0, maxIdx + 1), epsilon);
+  const right = douglasPeucker(pts.slice(maxIdx), epsilon);
+  return left.slice(0, -1).concat(right);
+}
+
+function buildNavUrl(coords) {
+  const MAX_ENCODED_LEN = 2800;
+  let pts = coords;
+  let epsilon = 0.00001;
+
+  let encoded = encodePolyline(pts);
+  while (encoded.length > MAX_ENCODED_LEN && epsilon < 0.01) {
+    epsilon *= 2;
+    pts = douglasPeucker(coords, epsilon);
+    encoded = encodePolyline(pts);
+  }
+
+  const baseUrl = 'https://marttikuldma.github.io/strava-route-planner/nav.html';
+  return `${baseUrl}#${encodeURIComponent(encoded)}`;
 }
 
 // ── GPX Export ───────────────────────────────────────────────────
@@ -493,15 +544,15 @@ function buildGoogleMapsUrl() {
 }
 
 function sendToDevice() {
-  const mapsUrl = buildGoogleMapsUrl();
-  if (!mapsUrl) return;
+  if (routeCoordinates.length < 2) return;
+  const navUrl = buildNavUrl(routeCoordinates);
 
   const container = document.getElementById('qr-code');
   container.innerHTML = '';
 
   try {
     const qr = qrcode(0, 'L');
-    qr.addData(mapsUrl);
+    qr.addData(navUrl);
     qr.make();
 
     const moduleCount = qr.getModuleCount();
