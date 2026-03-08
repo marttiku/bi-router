@@ -470,7 +470,12 @@ function buildNavUrl(coords) {
   }
 
   const baseUrl = 'https://marttiku.github.io/bi-router/nav.html';
-  return `${baseUrl}#${encodeURIComponent(encoded)}`;
+  let url = `${baseUrl}#${encodeURIComponent(encoded)}`;
+
+  const uid = sqRaw._uid;
+  if (uid) url += `&uid=${encodeURIComponent(uid)}`;
+
+  return url;
 }
 
 // ── GPX Export ───────────────────────────────────────────────────
@@ -925,6 +930,7 @@ async function loadSquadratsData() {
 
   sqRaw[14] = _parseRawSet(result?.raw?.[14]);
   sqRaw[17] = _parseRawSet(result?.raw?.[17]);
+  sqRaw._uid = uidResult.uid;
 
   if (!sqRaw[14] && !sqRaw[17]) {
     statusEl.className = 'squadrats-status error';

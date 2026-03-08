@@ -307,15 +307,22 @@
       document.getElementById('error-screen').style.display = 'flex';
     }
 
-    /* ── Parse Route ───────────────────────────── */
-    const hash = window.location.hash.slice(1);
-    if (!hash) {
+    /* ── Parse Route & Params ──────────────────── */
+    const hashStr = window.location.hash.slice(1);
+    if (!hashStr) {
       showError('No Route', 'Scan a QR code from the Route Planner to start navigation.');
+    }
+
+    const [encodedPoly, ...paramParts] = hashStr.split('&');
+    const hashParams = {};
+    for (const p of paramParts) {
+      const [k, v] = p.split('=');
+      if (k) hashParams[k] = decodeURIComponent(v || '');
     }
 
     let route;
     try {
-      route = decodePolyline(decodeURIComponent(hash));
+      route = decodePolyline(decodeURIComponent(encodedPoly));
       if (route.length < 2) throw new Error('Too few points');
     } catch (e) {
       showError('Invalid Route', 'Could not decode the route data. Please scan the QR code again.');
@@ -366,6 +373,94 @@
       }),
       zIndexOffset: 1000,
     });
+
+    /* ── Squadrats Overlay ──────────────────────── */
+    const SQ_Z = 14, SQINHO_Z = 17;
+
+    function lon2tile(lng, z) { return Math.floor((lng + 180) / 360 * (1 << z)); }
+    function lat2tile(lat, z) {
+      return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * (1 << z));
+    }
+
+    function addSqLayer(raw14, raw17) {
+      const set14 = raw14 ? new Set(Array.isArray(raw14) ? raw14 : Object.keys(raw14)) : null;
+      const set17 = raw17 ? new Set(Array.isArray(raw17) ? raw17 : Object.keys(raw17)) : null;
+      if (!set14 && !set17) return;
+
+      function drawUnvisited(ctx, tx, ty, z, sz, sqZ, rawSet, color, alpha) {
+        const s = 1 << (sqZ - z), cell = sz / s;
+        if (cell < 0.5) return;
+        const x0 = Math.floor(tx * s), y0 = Math.floor(ty * s);
+        const x1 = Math.ceil((tx + 1) * s) - 1, y1 = Math.ceil((ty + 1) * s) - 1;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = alpha;
+        for (let x = x0; x <= x1; x++)
+          for (let y = y0; y <= y1; y++)
+            if (!rawSet.has(`${x}-${y}`))
+              ctx.fillRect((x - tx * s) * cell, (y - ty * s) * cell, cell, cell);
+        ctx.globalAlpha = 1;
+      }
+
+      function drawBorders(ctx, tx, ty, z, sz, sqZ, rawSet, color, lw, alpha) {
+        const s = 1 << (sqZ - z), cell = sz / s;
+        if (cell < 3) return;
+        const x0 = Math.floor(tx * s) - 1, y0 = Math.floor(ty * s) - 1;
+        const x1 = Math.ceil((tx + 1) * s), y1 = Math.ceil((ty + 1) * s);
+        ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        for (let x = x0; x <= x1; x++)
+          for (let y = y0; y <= y1; y++) {
+            if (rawSet.has(`${x}-${y}`)) continue;
+            const px = (x - tx * s) * cell, py = (y - ty * s) * cell;
+            if (rawSet.has(`${x}-${y-1}`)) { ctx.moveTo(px, py); ctx.lineTo(px + cell, py); }
+            if (rawSet.has(`${x}-${y+1}`)) { ctx.moveTo(px, py + cell); ctx.lineTo(px + cell, py + cell); }
+            if (rawSet.has(`${x-1}-${y}`)) { ctx.moveTo(px, py); ctx.lineTo(px, py + cell); }
+            if (rawSet.has(`${x+1}-${y}`)) { ctx.moveTo(px + cell, py); ctx.lineTo(px + cell, py + cell); }
+          }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      const SqLayer = L.GridLayer.extend({
+        options: { tileSize: 256 },
+        createTile(coords, done) {
+          const c = document.createElement('canvas');
+          const dpr = window.devicePixelRatio || 1;
+          const sz = this.getTileSize();
+          c.width = sz.x * dpr; c.height = sz.y * dpr;
+          c.style.width = `${sz.x}px`; c.style.height = `${sz.y}px`;
+          const g = c.getContext('2d');
+          g.scale(dpr, dpr);
+          setTimeout(() => {
+            if (set14) {
+              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, set14, '#663399', 0.12);
+              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, set14, '#663399', 1, 0.25);
+            }
+            if (set17) {
+              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, set17, '#996633', 0.08);
+              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, set17, '#996633', 0.5, 0.2);
+            }
+            done(null, c);
+          }, 0);
+          return c;
+        }
+      });
+      new SqLayer().addTo(map);
+    }
+
+    if (hashParams.uid) {
+      const servers = ['https://mainframe-proxy-01.squadrats.com', 'https://mainframe-proxy-02.squadrats.com'];
+      (async () => {
+        for (const base of servers) {
+          try {
+            const r = await fetch(`${base}/anonymous/squadrants/${hashParams.uid}?planner=strava`);
+            if (!r.ok) continue;
+            const d = await r.json();
+            if (d?.raw) { addSqLayer(d.raw[14], d.raw[17]); return; }
+          } catch { /* try next or skip */ }
+        }
+      })();
+    }
 
     /* ── State ─────────────────────────────────── */
     let following = true;
