@@ -314,6 +314,135 @@ body {
   background: rgba(244, 67, 54, 0.15);
 }
 
+/* ── Pit Stops / POI ─────────────────────────── */
+
+.poi-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.poi-btn {
+  padding: 5px 10px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #3a3a5a;
+  background: #2a2a4a;
+  color: #b0b0cc;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.poi-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.poi-btn:hover:not(:disabled) {
+  background: #3a3a5a;
+  border-color: #5a5a7a;
+}
+
+.poi-btn.active {
+  background: #fc4c02;
+  border-color: #fc4c02;
+  color: #fff;
+}
+
+.poi-results {
+  margin-top: 8px;
+}
+
+.poi-results:empty {
+  display: none;
+}
+
+.poi-loading {
+  font-size: 12px;
+  color: #bb86fc;
+  padding: 6px 0;
+}
+
+.poi-empty {
+  font-size: 12px;
+  color: #666688;
+  font-style: italic;
+  padding: 6px 0;
+}
+
+.poi-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.poi-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.poi-rank {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #00897b;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.poi-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.poi-name {
+  font-size: 13px;
+  color: #e0e0e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poi-meta {
+  font-size: 11px;
+  color: #8888aa;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── POI Map Markers ─────────────────────────── */
+
+.poi-marker-icon {
+  background: none !important;
+  border: none !important;
+}
+
+.poi-marker {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #00897b;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  border: 2px solid #fff;
+}
+
 /* ── Stats ───────────────────────────────────── */
 
 .stats-grid {
