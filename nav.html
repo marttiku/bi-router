@@ -547,13 +547,8 @@
       centerBtn.classList.remove('active');
     });
 
-    lockBtn.addEventListener('click', async () => {
-      if (wakeLock) {
-        wakeLock.release();
-        wakeLock = null;
-        lockBtn.classList.remove('active');
-        return;
-      }
+    async function requestWakeLock() {
+      if (wakeLock) return;
       try {
         wakeLock = await navigator.wakeLock.request('screen');
         lockBtn.classList.add('active');
@@ -564,6 +559,21 @@
       } catch (e) {
         console.warn('Wake Lock not supported:', e);
       }
+    }
+
+    lockBtn.addEventListener('click', async () => {
+      if (wakeLock) {
+        wakeLock.release();
+        wakeLock = null;
+        lockBtn.classList.remove('active');
+        return;
+      }
+      await requestWakeLock();
+    });
+
+    requestWakeLock();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') requestWakeLock();
     });
   </script>
 </body>
