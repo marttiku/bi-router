@@ -466,6 +466,7 @@
   </div>
 
   <div id="controls">
+    <button class="map-btn" id="btn-sq-opp" title="Squadrats opportunities" style="display:none">🔲</button>
     <button class="map-btn active" id="btn-center" title="Re-center">⊕</button>
     <button class="map-btn" id="btn-orient" title="North up / Heading up">N</button>
     <button class="map-btn" id="btn-lock" title="Keep screen on">☀</button>
@@ -1025,7 +1026,6 @@
     const oppMarkers = [];
 
     function scanFullRouteOpportunities() {
-      if (!devMode) return;
       if (!sqSet14 && !sqSet17) return;
       oppMarkers.forEach(m => map.removeLayer(m));
       oppMarkers.length = 0;
@@ -1082,7 +1082,8 @@
             computeSqOnRoute();
             updateSqStats();
             sqStatsEl.style.display = 'flex';
-            scanFullRouteOpportunities();
+            document.getElementById('btn-sq-opp').style.display = '';
+            if (sqOppEnabled) scanFullRouteOpportunities();
             return true;
           }
         } catch { /* try next or skip */ }
@@ -1101,6 +1102,7 @@
     let wakeLock = null;
     let startTime = null;
     let lastPositions = [];
+    let sqOppEnabled = false;
 
     const distEl = document.getElementById('dist-remaining');
     const etaEl = document.getElementById('eta');
@@ -1193,12 +1195,14 @@
 
       if (sqDataLoaded) {
         checkSqCapture(cur);
-        const now2 = Date.now();
-        if (now2 - lastScanTime > 5000) {
-          lastScanTime = now2;
-          scanOpportunities(snap.index);
+        if (sqOppEnabled) {
+          const now2 = Date.now();
+          if (now2 - lastScanTime > 5000) {
+            lastScanTime = now2;
+            scanOpportunities(snap.index);
+          }
+          dismissPassedOpps(snap.index);
         }
-        dismissPassedOpps(snap.index);
       }
 
       if (remaining < 30) {
@@ -1333,6 +1337,22 @@
     requestWakeLock();
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') requestWakeLock();
+    });
+
+    const sqOppBtn = document.getElementById('btn-sq-opp');
+    sqOppBtn.addEventListener('click', () => {
+      sqOppEnabled = !sqOppEnabled;
+      sqOppBtn.classList.toggle('active', sqOppEnabled);
+      if (sqOppEnabled) {
+        scanFullRouteOpportunities();
+        lastScanTime = 0;
+      } else {
+        oppMarkers.forEach(m => map.removeLayer(m));
+        oppMarkers.length = 0;
+        opportunities.length = 0;
+        renderOppCards();
+        oppRouteCache.clear();
+      }
     });
 
     /* ── Dev Mode ──────────────────────────────── */
