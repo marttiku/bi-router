@@ -1,9 +1,7 @@
-const TILE_AUTH_RULE_ID = 1;
-const REQUIRED_COOKIES = [
+const CF_COOKIES = [
   'CloudFront-Key-Pair-Id',
   'CloudFront-Policy',
   'CloudFront-Signature',
-  '_strava_idcf'
 ];
 
 chrome.action.onClicked.addListener(() => {
@@ -28,39 +26,22 @@ async function setupTileAuth() {
     const cookies = await chrome.cookies.getAll({ domain: '.strava.com' });
     const found = {};
     for (const c of cookies) {
-      if (REQUIRED_COOKIES.includes(c.name)) {
+      if (CF_COOKIES.includes(c.name)) {
         found[c.name] = c.value;
       }
     }
 
-    const missing = REQUIRED_COOKIES.filter(n => !found[n]);
+    const missing = CF_COOKIES.filter(n => !found[n]);
     if (missing.length > 0) {
       return { authenticated: false, missing };
     }
 
-    const cookieStr = REQUIRED_COOKIES.map(n => `${n}=${found[n]}`).join('; ');
-
-    await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [TILE_AUTH_RULE_ID],
-      addRules: [{
-        id: TILE_AUTH_RULE_ID,
-        priority: 1,
-        action: {
-          type: 'modifyHeaders',
-          requestHeaders: [{
-            header: 'Cookie',
-            operation: 'set',
-            value: cookieStr
-          }]
-        },
-        condition: {
-          urlFilter: '||content-*.strava.com/identified/',
-          resourceTypes: ['image', 'xmlhttprequest', 'other']
-        }
-      }]
-    });
-
-    return { authenticated: true };
+    return {
+      authenticated: true,
+      keyPairId: found['CloudFront-Key-Pair-Id'],
+      policy: found['CloudFront-Policy'],
+      signature: found['CloudFront-Signature'],
+    };
   } catch (err) {
     return { authenticated: false, error: err.message };
   }

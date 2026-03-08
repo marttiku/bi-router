@@ -4,8 +4,7 @@
   "version": "1.2.0",
   "description": "Plan cycling routes using Strava's global heatmap overlay and export to GPX for Google Maps",
   "permissions": [
-    "cookies",
-    "declarativeNetRequest"
+    "cookies"
   ],
   "host_permissions": [
     "*://*.strava.com/*",
