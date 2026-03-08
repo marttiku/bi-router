@@ -91,7 +91,8 @@ function initHeatmap() {
   if (stravaLayer) map.removeLayer(stravaLayer);
 
   stravaLayer = L.tileLayer(getTileUrl(), {
-    maxZoom: authenticated ? 15 : 11,
+    maxNativeZoom: authenticated ? 15 : 11,
+    maxZoom: 19,
     minZoom: 2,
     opacity: parseInt(document.getElementById('opacity-slider').value) / 100,
     tileSize: 256,
