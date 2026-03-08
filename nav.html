@@ -232,12 +232,7 @@
     .leaflet-tile-pane { filter: brightness(0.85) saturate(0.8); }
 
     .leaflet-map-pane {
-      transition: transform 0.4s ease-out;
-      transform-origin: center center;
-    }
-
-    .heading-up .leaflet-marker-icon {
-      transition: transform 0.4s ease-out;
+      transition: transform 0.3s ease-out;
     }
   </style>
 </head>
@@ -922,17 +917,36 @@
     }
 
     /* ── Map Rotation ──────────────────────────── */
+    const _mapPane = map.getPane('mapPane');
+    let _mapRotation = 0;
+    const _origSetTransform = L.DomUtil.setTransform;
+
+    L.DomUtil.setTransform = function(el, offset, scale) {
+      if (_mapRotation !== 0 && el === _mapPane) {
+        const sz = map.getSize();
+        const cx = sz.x / 2, cy = sz.y / 2;
+        const pos = offset || new L.Point(0, 0);
+        el.style.transform =
+          `translate(${cx}px,${cy}px) rotate(${-_mapRotation}deg) translate(${-cx}px,${-cy}px) translate3d(${pos.x}px,${pos.y}px,0)` +
+          (scale ? ` scale(${scale})` : '');
+        return;
+      }
+      _origSetTransform.call(L.DomUtil, el, offset, scale);
+      if (_mapRotation !== 0 && el.classList && el.classList.contains('leaflet-marker-icon')) {
+        el.style.transformOrigin = 'center center';
+        el.style.transform += ` rotate(${_mapRotation}deg)`;
+      }
+    };
+
     function rotateMap(deg) {
-      const pane = map.getPane('mapPane');
-      if (!pane) return;
-      const center = map.getSize().divideBy(2);
-      pane.style.transformOrigin = `${center.x}px ${center.y}px`;
-      pane.style.transform = `rotate(${-deg}deg)`;
+      _mapRotation = deg;
+      const pos = L.DomUtil.getPosition(_mapPane) || new L.Point(0, 0);
+      L.DomUtil.setTransform(_mapPane, pos);
 
       document.querySelectorAll('.leaflet-marker-icon').forEach(el => {
         el.style.transformOrigin = 'center center';
-        const existing = el.style.transform.replace(/rotate\([^)]*\)\s*/g, '');
-        el.style.transform = existing + ` rotate(${deg}deg)`;
+        const existing = el.style.transform.replace(/\s*rotate\([^)]*\)/g, '');
+        el.style.transform = deg !== 0 ? `${existing} rotate(${deg}deg)` : existing;
       });
     }
 
