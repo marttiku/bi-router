@@ -927,7 +927,7 @@
         .slice(0, 1);
       renderOppCards();
 
-      if (redOpps.length || validatedYellows.length || toValidate.length) {
+      if (toValidate.length) {
         console.log(`[opp] Scan at idx ${snapIdx}: ${redOpps.length} red, ${validatedYellows.length} validated yellow, ${toValidate.length} to validate`);
       }
 
@@ -1497,18 +1497,18 @@
         zIndexOffset: 1000,
       }).addTo(map);
 
-      function simulateAt(idx) {
+      function simulateAt(idx, forceScan) {
         idx = Math.max(0, Math.min(route.length - 1, idx));
         const pct = Math.round(idx / (route.length - 1) * 100);
         devLabel.textContent = `${pct}%`;
-        lastScanTime = 0;
+        if (forceScan) lastScanTime = 0;
         onPosition({
           coords: { latitude: route[idx][0], longitude: route[idx][1], speed: 5 }
         });
       }
 
       devSlider.addEventListener('input', () => {
-        simulateAt(parseInt(devSlider.value));
+        simulateAt(parseInt(devSlider.value), true);
       });
 
       const playBtn = document.getElementById('dev-play-btn');
@@ -1598,7 +1598,7 @@
         const ll = gpsDot.getLatLng();
         const snap = snapToRoute([ll.lat, ll.lng], route);
         devSlider.value = snap.index;
-        simulateAt(snap.index);
+        simulateAt(snap.index, true);
       });
 
       document.addEventListener('keydown', (e) => {
@@ -1606,11 +1606,11 @@
         const step = e.shiftKey ? 10 : 1;
         if (e.key === 'ArrowRight') {
           devSlider.value = Math.min(route.length - 1, parseInt(devSlider.value) + step);
-          simulateAt(parseInt(devSlider.value));
+          simulateAt(parseInt(devSlider.value), true);
           e.preventDefault();
         } else if (e.key === 'ArrowLeft') {
           devSlider.value = Math.max(0, parseInt(devSlider.value) - step);
-          simulateAt(parseInt(devSlider.value));
+          simulateAt(parseInt(devSlider.value), true);
           e.preventDefault();
         }
       });
@@ -1642,7 +1642,7 @@
 
       if (savedUid) devLoadSq();
 
-      simulateAt(0);
+      simulateAt(0, true);
     }
   </script>
 </body>
