@@ -1322,24 +1322,29 @@
       const devUidInput = document.getElementById('dev-uid-input');
       const devUidBtn = document.getElementById('dev-uid-btn');
 
-      if (hashParams.uid) {
-        devUidInput.value = hashParams.uid;
-        devUidBtn.textContent = 'Loaded';
-      }
+      const savedUid = hashParams.uid || localStorage.getItem('dev_sq_uid') || '';
+      if (savedUid) devUidInput.value = savedUid;
 
       async function devLoadSq() {
         const uid = devUidInput.value.trim();
         if (!uid) return;
         devUidBtn.textContent = '…';
         const ok = await loadSquadratsForUid(uid);
-        devUidBtn.textContent = ok ? 'Loaded' : 'Failed';
-        if (ok) simulateAt(parseInt(devSlider.value));
+        if (ok) {
+          localStorage.setItem('dev_sq_uid', uid);
+          devUidBtn.textContent = 'Loaded';
+          simulateAt(parseInt(devSlider.value));
+        } else {
+          devUidBtn.textContent = 'Failed';
+        }
       }
 
       devUidBtn.addEventListener('click', devLoadSq);
       devUidInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') devLoadSq();
       });
+
+      if (savedUid) devLoadSq();
 
       simulateAt(0);
     }
