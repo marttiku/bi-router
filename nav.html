@@ -1137,7 +1137,11 @@
       if (opp.keys) opp.keys.forEach(k => dismissedOppKeys.add(k));
       else dismissedOppKeys.add(opp.key);
 
-      oppRouteCache.clear();
+      for (const [k, v] of oppRouteCache) {
+        if (v.routeIdx !== undefined && v.routeIdx >= snap.index && v.routeIdx <= detourEndIdx) {
+          oppRouteCache.delete(k);
+        }
+      }
       opportunities.splice(idx, 1);
       renderOppCards(true);
     }
