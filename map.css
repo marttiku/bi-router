@@ -208,6 +208,32 @@ body {
   font-weight: 600;
 }
 
+.detour-status {
+  font-size: 11px;
+  padding: 2px 0;
+  color: #8888aa;
+  font-variant-numeric: tabular-nums;
+  min-height: 16px;
+}
+
+.detour-status:empty {
+  display: none;
+}
+
+.detour-result strong {
+  color: #4cf095;
+  font-weight: 600;
+}
+
+.detour-computing {
+  color: #bb86fc;
+}
+
+.detour-none {
+  color: #666688;
+  font-style: italic;
+}
+
 .bike-road-tooltip {
   background: #1a1a2e;
   color: #e0e0e0;

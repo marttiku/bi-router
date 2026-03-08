@@ -300,16 +300,23 @@ let routeDebounce = null;
 
 function scheduleRoute() {
   clearTimeout(routeDebounce);
+  clearTimeout(optimizeDebounce);
+  if (optimizeAbort) { optimizeAbort.abort(); optimizeAbort = null; }
+  if (baseRoutePolyline) { map.removeLayer(baseRoutePolyline); baseRoutePolyline = null; }
   if (routePolyline) {
     map.removeLayer(routePolyline);
     routePolyline = null;
   }
   routeCoordinates = [];
+  baseRouteCoordinates = [];
+  baseRouteDistanceKm = 0;
 
   if (waypoints.length < 2) {
     updateStats(null);
     updateButtons();
     if (sqNewLayer) sqNewLayer.setNewTiles(null, null);
+    const statusEl = document.getElementById('detour-status');
+    if (statusEl) statusEl.innerHTML = '';
     return;
   }
 
@@ -342,6 +349,14 @@ async function updateRoute() {
 
     routeCoordinates = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
 
+    baseRouteCoordinates = routeCoordinates.slice();
+    baseRouteDistanceKm = route.distance / 1000;
+
+    if (baseRoutePolyline) {
+      map.removeLayer(baseRoutePolyline);
+      baseRoutePolyline = null;
+    }
+
     if (routePolyline) map.removeLayer(routePolyline);
     routePolyline = L.polyline(routeCoordinates, {
       color: '#fc4c02',
@@ -353,6 +368,10 @@ async function updateRoute() {
     updateStats(route);
     updateButtons();
     updateSqNewLayer();
+
+    if (sqEnabled && sqRaw[SQINHO_ZOOM] && detourBudgetPct > 0) {
+      scheduleOptimization();
+    }
   } catch (err) {
     if (err.name === 'AbortError') return;
     console.error('Routing error:', err);
@@ -716,6 +735,43 @@ function lat2tile(lat, zoom) {
   );
 }
 
+function tile2lon(x, z) { return x / (1 << z) * 360 - 180; }
+
+function tile2lat(y, z) {
+  const n = Math.PI - 2 * Math.PI * y / (1 << z);
+  return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}
+
+const EARTH_R = 6371000;
+const _toRad = d => d * Math.PI / 180;
+
+function haversine(a, b) {
+  const dLat = _toRad(b[0] - a[0]), dLng = _toRad(b[1] - a[1]);
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(_toRad(a[0])) * Math.cos(_toRad(b[0])) * Math.sin(dLng / 2) ** 2;
+  return EARTH_R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function tileCenter(key, z) {
+  const [x, y] = key.split('-').map(Number);
+  return [(tile2lat(y, z) + tile2lat(y + 1, z)) / 2, (tile2lon(x, z) + tile2lon(x + 1, z)) / 2];
+}
+
+function tileBorderDistToPoint(key, z, pt) {
+  const [x, y] = key.split('-').map(Number);
+  const north = tile2lat(y, z), south = tile2lat(y + 1, z);
+  const west = tile2lon(x, z), east = tile2lon(x + 1, z);
+  const clampLat = Math.max(south, Math.min(north, pt[0]));
+  const clampLng = Math.max(west, Math.min(east, pt[1]));
+  return haversine(pt, [clampLat, clampLng]);
+}
+
+function nearestBorderPoint(key, z, pt) {
+  const [x, y] = key.split('-').map(Number);
+  const north = tile2lat(y, z), south = tile2lat(y + 1, z);
+  const west = tile2lon(x, z), east = tile2lon(x + 1, z);
+  return [Math.max(south, Math.min(north, pt[0])), Math.max(west, Math.min(east, pt[1]))];
+}
+
 function _makeCanvas(size) {
   const canvas = document.createElement('canvas');
   const dpr = window.devicePixelRatio || 1;
@@ -953,6 +1009,8 @@ async function toggleSquadrats(show) {
     document.getElementById('squadrats-controls').style.display = 'none';
     document.getElementById('squadrats-status').style.display = 'none';
     sqEnabled = false;
+    clearOptimization();
+    document.getElementById('detour-status').innerHTML = '';
     return;
   }
 
@@ -978,6 +1036,10 @@ async function toggleSquadrats(show) {
     sqNewLayer.addTo(map);
     updateSqNewLayer();
   }
+
+  if (detourBudgetPct > 0 && baseRouteCoordinates.length >= 2) {
+    scheduleOptimization();
+  }
 }
 
 document.getElementById('toggle-squadrats').addEventListener('change', (e) => {
@@ -1000,6 +1062,305 @@ document.getElementById('toggle-squadrats-new').addEventListener('change', (e) =
     map.removeLayer(sqNewLayer);
   }
 });
+
+document.getElementById('detour-slider').addEventListener('input', (e) => {
+  detourBudgetPct = parseInt(e.target.value);
+  document.getElementById('detour-value').textContent = `${detourBudgetPct}%`;
+  scheduleOptimization();
+});
+
+// ── Squadratinho Route Optimizer ─────────────────────────────────
+let detourBudgetPct = 0;
+let baseRouteCoordinates = [];
+let baseRouteDistanceKm = 0;
+let baseRoutePolyline = null;
+let optimizeDebounce = null;
+let optimizeAbort = null;
+
+const SEARCH_RADIUS_M = 500;
+const DETOUR_ROAD_FACTOR = 1.4;
+const MAX_VIA_POINTS = 15;
+const CLUSTER_RADIUS_M = 300;
+
+function scanSquadratinhoOpportunities(routeCoords, radiusM) {
+  const rawSet = sqRaw[SQINHO_ZOOM];
+  if (!rawSet || routeCoords.length < 2) return [];
+
+  const candidates = new Map();
+  const step = Math.max(1, Math.floor(routeCoords.length / 500));
+
+  for (let i = 0; i < routeCoords.length; i += step) {
+    const [lat, lng] = routeCoords[i];
+    const cx = lon2tile(lng, SQINHO_ZOOM);
+    const cy = lat2tile(lat, SQINHO_ZOOM);
+    const span = Math.ceil(radiusM / 150) + 1;
+
+      for (let dx = -span; dx <= span; dx++) {
+      for (let dy = -span; dy <= span; dy++) {
+        const key = `${cx + dx}-${cy + dy}`;
+        if (rawSet.has(key)) continue;
+
+        const borderDist = tileBorderDistToPoint(key, SQINHO_ZOOM, [lat, lng]);
+        if (borderDist > radiusM) continue;
+
+        const existing = candidates.get(key);
+        if (!existing || borderDist < existing.borderDist) {
+          candidates.set(key, {
+            key,
+            routeIdx: i,
+            borderDist,
+            borderPoint: nearestBorderPoint(key, SQINHO_ZOOM, [lat, lng]),
+            center: tileCenter(key, SQINHO_ZOOM),
+          });
+        }
+      }
+    }
+  }
+
+  return Array.from(candidates.values());
+}
+
+function clusterDetourCandidates(candidates) {
+  const used = new Set();
+  const clusters = [];
+
+  const sorted = candidates.slice().sort((a, b) => a.borderDist - b.borderDist);
+
+  for (const c of sorted) {
+    if (used.has(c.key)) continue;
+    used.add(c.key);
+
+    const cluster = {
+      tiles: [c],
+      routeIdx: c.routeIdx,
+      borderDist: c.borderDist,
+    };
+
+    for (const other of sorted) {
+      if (used.has(other.key)) continue;
+      if (haversine(c.center, other.center) < CLUSTER_RADIUS_M) {
+        cluster.tiles.push(other);
+        used.add(other.key);
+      }
+    }
+
+    let latSum = 0, lngSum = 0;
+    for (const t of cluster.tiles) {
+      latSum += t.borderPoint[0];
+      lngSum += t.borderPoint[1];
+    }
+    cluster.viaPoint = [latSum / cluster.tiles.length, lngSum / cluster.tiles.length];
+
+    const avgBorderDist = cluster.tiles.reduce((s, t) => s + t.borderDist, 0) / cluster.tiles.length;
+    cluster.estimatedDetourM = 2 * avgBorderDist * DETOUR_ROAD_FACTOR;
+    cluster.tileCount = cluster.tiles.length;
+    cluster.efficiency = cluster.tileCount / Math.max(cluster.estimatedDetourM / 1000, 0.01);
+    cluster.routeIdx = Math.min(...cluster.tiles.map(t => t.routeIdx));
+
+    clusters.push(cluster);
+  }
+
+  return clusters;
+}
+
+function selectDetours(clusters, budgetKm) {
+  const sorted = clusters.slice().sort((a, b) => b.efficiency - a.efficiency);
+  const selected = [];
+  let usedKm = 0;
+
+  for (const cl of sorted) {
+    if (selected.length >= MAX_VIA_POINTS) break;
+    const costKm = cl.estimatedDetourM / 1000;
+    if (usedKm + costKm > budgetKm) continue;
+    selected.push(cl);
+    usedKm += costKm;
+  }
+
+  selected.sort((a, b) => a.routeIdx - b.routeIdx);
+  return selected;
+}
+
+function buildOptimizedWaypoints(userWaypoints, selectedClusters, routeCoords) {
+  if (selectedClusters.length === 0) return null;
+
+  const wpPositions = userWaypoints.map(w => {
+    const ll = w.marker.getLatLng();
+    return [ll.lat, ll.lng];
+  });
+
+  const wpRouteIndices = wpPositions.map(wp => {
+    let bestIdx = 0, bestDist = Infinity;
+    for (let i = 0; i < routeCoords.length; i++) {
+      const d = haversine(wp, routeCoords[i]);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    return bestIdx;
+  });
+
+  const result = [];
+  let clusterPtr = 0;
+
+  for (let w = 0; w < wpPositions.length; w++) {
+    result.push(wpPositions[w]);
+
+    const segEnd = w < wpPositions.length - 1 ? wpRouteIndices[w + 1] : routeCoords.length;
+
+    while (clusterPtr < selectedClusters.length && selectedClusters[clusterPtr].routeIdx < segEnd) {
+      result.push(selectedClusters[clusterPtr].viaPoint);
+      clusterPtr++;
+    }
+  }
+
+  while (clusterPtr < selectedClusters.length) {
+    result.push(selectedClusters[clusterPtr].viaPoint);
+    clusterPtr++;
+  }
+
+  return result;
+}
+
+async function runOptimization() {
+  const statusEl = document.getElementById('detour-status');
+
+  if (!sqEnabled || !sqRaw[SQINHO_ZOOM] || detourBudgetPct <= 0 || baseRouteCoordinates.length < 2) {
+    clearOptimization();
+    return;
+  }
+
+  statusEl.innerHTML = '<span class="detour-computing">Optimizing…</span>';
+
+  if (optimizeAbort) optimizeAbort.abort();
+  const controller = new AbortController();
+  optimizeAbort = controller;
+
+  await new Promise(r => setTimeout(r, 50));
+  if (controller.signal.aborted) return;
+
+  const candidates = scanSquadratinhoOpportunities(baseRouteCoordinates, SEARCH_RADIUS_M);
+  if (candidates.length === 0) {
+    statusEl.innerHTML = '<span class="detour-none">No nearby squadratinhos found</span>';
+    clearOptimization();
+    return;
+  }
+
+  const clusters = clusterDetourCandidates(candidates);
+  const budgetKm = baseRouteDistanceKm * (detourBudgetPct / 100);
+  const selected = selectDetours(clusters, budgetKm);
+
+  if (selected.length === 0) {
+    statusEl.innerHTML = '<span class="detour-none">Budget too small for detours</span>';
+    clearOptimization();
+    return;
+  }
+
+  const expandedWaypoints = buildOptimizedWaypoints(waypoints, selected, baseRouteCoordinates);
+  if (!expandedWaypoints || controller.signal.aborted) return;
+
+  const lonlatPairs = expandedWaypoints.map(([lat, lng]) => [lng, lat]);
+
+  try {
+    const route = await fetchRoute('trekking', lonlatPairs, controller.signal)
+      || await fetchRoute('hiking-mountain', lonlatPairs, controller.signal);
+
+    if (optimizeAbort !== controller) return;
+
+    if (!route) {
+      statusEl.innerHTML = '<span class="detour-none">Optimization routing failed</span>';
+      clearOptimization();
+      return;
+    }
+
+    routeCoordinates = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+
+    if (routePolyline) map.removeLayer(routePolyline);
+
+    if (!baseRoutePolyline) {
+      baseRoutePolyline = L.polyline(baseRouteCoordinates, {
+        color: '#888',
+        weight: 3,
+        opacity: 0.4,
+        dashArray: '8 6',
+        interactive: false,
+      }).addTo(map);
+    } else {
+      baseRoutePolyline.setLatLngs(baseRouteCoordinates);
+    }
+
+    routePolyline = L.polyline(routeCoordinates, {
+      color: '#fc4c02',
+      weight: 4,
+      opacity: 0.85,
+      smoothFactor: 1,
+    }).addTo(map);
+
+    const optimizedDistKm = route.distance / 1000;
+    const deltaKm = optimizedDistKm - baseRouteDistanceKm;
+    const deltaPct = ((deltaKm / baseRouteDistanceKm) * 100).toFixed(0);
+
+    const newInhos = getRouteNewTiles(SQINHO_ZOOM, sqRaw[SQINHO_ZOOM]);
+    const baseInhos = getRouteNewTilesFromCoords(baseRouteCoordinates, SQINHO_ZOOM, sqRaw[SQINHO_ZOOM]);
+    const extraInhos = (newInhos?.size || 0) - (baseInhos?.size || 0);
+
+    lastRouteDistanceKm = optimizedDistKm;
+    const distEl = document.getElementById('route-distance');
+    distEl.textContent = optimizedDistKm < 10
+      ? `${optimizedDistKm.toFixed(1)} km`
+      : `${Math.round(optimizedDistKm)} km`;
+    updateDuration();
+
+    statusEl.innerHTML = `<span class="detour-result"><strong>+${extraInhos > 0 ? extraInhos : newInhos?.size || 0}</strong> inhos · <strong>+${deltaKm.toFixed(1)} km</strong> (+${deltaPct}%)</span>`;
+
+    updateSqNewLayer();
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    console.error('Optimization routing error:', err);
+    statusEl.innerHTML = '<span class="detour-none">Optimization failed</span>';
+    clearOptimization();
+  }
+}
+
+function getRouteNewTilesFromCoords(coords, zoom, rawSet) {
+  if (coords.length < 2 || !rawSet) return null;
+  const newTiles = new Set();
+  let prevKey = null;
+  for (const [lat, lng] of coords) {
+    const key = `${lon2tile(lng, zoom)}-${lat2tile(lat, zoom)}`;
+    if (key !== prevKey) {
+      if (!rawSet.has(key)) newTiles.add(key);
+      prevKey = key;
+    }
+  }
+  return newTiles;
+}
+
+function clearOptimization() {
+  if (baseRoutePolyline) {
+    map.removeLayer(baseRoutePolyline);
+    baseRoutePolyline = null;
+  }
+  if (baseRouteCoordinates.length > 0 && routePolyline) {
+    routeCoordinates = baseRouteCoordinates;
+    routePolyline.setLatLngs(routeCoordinates);
+    lastRouteDistanceKm = baseRouteDistanceKm;
+    const distEl = document.getElementById('route-distance');
+    distEl.textContent = baseRouteDistanceKm < 10
+      ? `${baseRouteDistanceKm.toFixed(1)} km`
+      : `${Math.round(baseRouteDistanceKm)} km`;
+    updateDuration();
+    updateSqNewLayer();
+  }
+}
+
+function scheduleOptimization() {
+  clearTimeout(optimizeDebounce);
+  if (detourBudgetPct <= 0) {
+    clearOptimization();
+    const statusEl = document.getElementById('detour-status');
+    statusEl.innerHTML = '';
+    return;
+  }
+  optimizeDebounce = setTimeout(() => runOptimization(), 800);
+}
 
 // ── Heatmap Controls ─────────────────────────────────────────────
 document.getElementById('sport-select').addEventListener('change', () => initHeatmap());
