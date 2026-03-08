@@ -309,7 +309,7 @@ function scheduleRoute() {
   if (waypoints.length < 2) {
     updateStats(null);
     updateButtons();
-    if (squadratsNewLayer) squadratsNewLayer.setNewTiles(null);
+    if (sqNewLayer) sqNewLayer.setNewTiles(null, null);
     return;
   }
 
@@ -352,7 +352,7 @@ async function updateRoute() {
 
     updateStats(route);
     updateButtons();
-    updateSquadratsNewLayer();
+    updateSqNewLayer();
   } catch (err) {
     if (err.name === 'AbortError') return;
     console.error('Routing error:', err);
@@ -692,15 +692,16 @@ document.getElementById('toggle-bike-roads').addEventListener('change', (e) => {
 });
 
 // ── Squadrats Layer ──────────────────────────────────────────────
-const SQUADRATS_ZOOM = 14;
-let squadratsRaw14 = null;
-let squadratsTileLayer = null;
-let squadratsGridLayer = null;
-let squadratsNewLayer = null;
-let squadratsEnabled = false;
-let squadratsShowGrid = true;
-let squadratsShowNew = true;
-let squadratsOpacity = 0.5;
+const SQ_ZOOM = 14;
+const SQINHO_ZOOM = 17;
+let sqRaw = { 14: null, 17: null };
+let sqTileLayer = null;
+let sqGridLayer = null;
+let sqNewLayer = null;
+let sqEnabled = false;
+let sqShowGrid = true;
+let sqShowNew = true;
+let sqOpacity = 0.5;
 
 function lon2tile(lng, zoom) {
   return Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
@@ -712,201 +713,177 @@ function lat2tile(lat, zoom) {
   );
 }
 
-function tile2lon(x, zoom) {
-  return x / Math.pow(2, zoom) * 360 - 180;
+function _makeCanvas(size) {
+  const canvas = document.createElement('canvas');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = size.x * dpr;
+  canvas.height = size.y * dpr;
+  canvas.style.width = `${size.x}px`;
+  canvas.style.height = `${size.y}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { canvas, ctx };
 }
 
-function tile2lat(y, zoom) {
-  const n = Math.PI - 2 * Math.PI * y / Math.pow(2, zoom);
-  return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+function _drawBitmap(ctx, tileX, tileY, zoom, tileSize, sqZoom, rawSet, color, alpha) {
+  const scale = Math.pow(2, sqZoom - zoom);
+  const cellPx = tileSize / scale;
+  if (cellPx < 0.5) return;
+
+  const minX = Math.floor(tileX * scale);
+  const minY = Math.floor(tileY * scale);
+  const maxX = Math.ceil((tileX + 1) * scale) - 1;
+  const maxY = Math.ceil((tileY + 1) * scale) - 1;
+
+  ctx.fillStyle = color;
+  ctx.globalAlpha = alpha;
+  for (let x = minX; x <= maxX; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      if (rawSet.has(`${x}-${y}`)) {
+        ctx.fillRect(
+          (x - tileX * scale) * cellPx,
+          (y - tileY * scale) * cellPx,
+          cellPx, cellPx
+        );
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
-function createSquadratsTileLayer() {
+function _drawGridLines(ctx, tileX, tileY, zoom, tileSize, sqZoom, color, lineWidth, alpha) {
+  const scale = Math.pow(2, sqZoom - zoom);
+  const cellPx = tileSize / scale;
+  if (cellPx < 4) return;
+
+  const minX = Math.floor(tileX * scale);
+  const minY = Math.floor(tileY * scale);
+  const maxX = Math.ceil((tileX + 1) * scale);
+  const maxY = Math.ceil((tileY + 1) * scale);
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  for (let x = minX; x <= maxX; x++) {
+    const px = (x - tileX * scale) * cellPx;
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, tileSize);
+  }
+  for (let y = minY; y <= maxY; y++) {
+    const py = (y - tileY * scale) * cellPx;
+    ctx.moveTo(0, py);
+    ctx.lineTo(tileSize, py);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function createSqTileLayer() {
   return L.GridLayer.extend({
     options: { tileSize: 256 },
     createTile(coords, done) {
-      const canvas = document.createElement('canvas');
       const size = this.getTileSize();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = size.x * dpr;
-      canvas.height = size.y * dpr;
-      canvas.style.width = `${size.x}px`;
-      canvas.style.height = `${size.y}px`;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-
+      const { canvas, ctx } = _makeCanvas(size);
       setTimeout(() => {
-        if (squadratsRaw14) {
-          this._drawVisited(ctx, coords.x, coords.y, coords.z, size.x);
-        }
+        if (sqRaw[14]) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, sqRaw[14], '#c8a0e8', sqOpacity);
+        if (sqRaw[17]) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, sqRaw[17], '#e8c070', sqOpacity * 0.8);
         done(null, canvas);
       }, 0);
       return canvas;
-    },
-    _drawVisited(ctx, tileX, tileY, zoom, tileSize) {
-      const scale = Math.pow(2, SQUADRATS_ZOOM - zoom);
-      const minSqX = Math.floor(tileX * scale);
-      const minSqY = Math.floor(tileY * scale);
-      const maxSqX = Math.ceil((tileX + 1) * scale) - 1;
-      const maxSqY = Math.ceil((tileY + 1) * scale) - 1;
-      const cellPx = tileSize / scale;
-
-      if (cellPx < 1) return;
-
-      ctx.fillStyle = '#c8a0e8';
-      ctx.globalAlpha = squadratsOpacity;
-
-      for (let sx = minSqX; sx <= maxSqX; sx++) {
-        for (let sy = minSqY; sy <= maxSqY; sy++) {
-          if (squadratsRaw14.has(`${sx}-${sy}`)) {
-            const px = (sx - tileX * scale) * cellPx;
-            const py = (sy - tileY * scale) * cellPx;
-            ctx.fillRect(px, py, cellPx, cellPx);
-          }
-        }
-      }
-      ctx.globalAlpha = 1;
     }
   });
 }
 
-function createSquadratsGridLayer() {
+function createSqGridLayer() {
   return L.GridLayer.extend({
     options: { tileSize: 256 },
     createTile(coords, done) {
-      const canvas = document.createElement('canvas');
       const size = this.getTileSize();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = size.x * dpr;
-      canvas.height = size.y * dpr;
-      canvas.style.width = `${size.x}px`;
-      canvas.style.height = `${size.y}px`;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-
+      const { canvas, ctx } = _makeCanvas(size);
+      const z = coords.z;
       setTimeout(() => {
-        this._drawGrid(ctx, coords.x, coords.y, coords.z, size.x);
+        const sqCellPx = size.x / Math.pow(2, SQ_ZOOM - z);
+        _drawGridLines(ctx, coords.x, coords.y, z, size.x, SQ_ZOOM, '#663399', sqCellPx > 20 ? 1 : 0.5, 0.35);
+        const inhoCellPx = size.x / Math.pow(2, SQINHO_ZOOM - z);
+        if (inhoCellPx >= 4) {
+          _drawGridLines(ctx, coords.x, coords.y, z, size.x, SQINHO_ZOOM, '#996633', 0.5, 0.2);
+        }
         done(null, canvas);
       }, 0);
       return canvas;
-    },
-    _drawGrid(ctx, tileX, tileY, zoom, tileSize) {
-      const scale = Math.pow(2, SQUADRATS_ZOOM - zoom);
-      const cellPx = tileSize / scale;
-      if (cellPx < 4) return;
-
-      ctx.strokeStyle = '#663399';
-      ctx.lineWidth = cellPx > 20 ? 1 : 0.5;
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath();
-
-      const minSqX = Math.floor(tileX * scale);
-      const minSqY = Math.floor(tileY * scale);
-      const maxSqX = Math.ceil((tileX + 1) * scale);
-      const maxSqY = Math.ceil((tileY + 1) * scale);
-
-      for (let sx = minSqX; sx <= maxSqX; sx++) {
-        const px = (sx - tileX * scale) * cellPx;
-        ctx.moveTo(px, 0);
-        ctx.lineTo(px, tileSize);
-      }
-      for (let sy = minSqY; sy <= maxSqY; sy++) {
-        const py = (sy - tileY * scale) * cellPx;
-        ctx.moveTo(0, py);
-        ctx.lineTo(tileSize, py);
-      }
-      ctx.stroke();
-      ctx.globalAlpha = 1;
     }
   });
 }
 
-function createSquadratsNewLayer() {
+function createSqNewLayer() {
   return L.GridLayer.extend({
     options: { tileSize: 256 },
-    _newTiles: null,
-    setNewTiles(tiles) {
-      this._newTiles = tiles;
+    _new14: null,
+    _new17: null,
+    setNewTiles(n14, n17) {
+      this._new14 = n14;
+      this._new17 = n17;
       this.redraw();
     },
     createTile(coords, done) {
-      const canvas = document.createElement('canvas');
       const size = this.getTileSize();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = size.x * dpr;
-      canvas.height = size.y * dpr;
-      canvas.style.width = `${size.x}px`;
-      canvas.style.height = `${size.y}px`;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-
+      const { canvas, ctx } = _makeCanvas(size);
       setTimeout(() => {
-        if (this._newTiles?.size) {
-          this._drawNew(ctx, coords.x, coords.y, coords.z, size.x);
-        }
+        if (this._new14?.size) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQ_ZOOM, this._new14, '#4cf095', 0.5);
+        if (this._new17?.size) _drawBitmap(ctx, coords.x, coords.y, coords.z, size.x, SQINHO_ZOOM, this._new17, '#00fcca', 0.5);
         done(null, canvas);
       }, 0);
       return canvas;
-    },
-    _drawNew(ctx, tileX, tileY, zoom, tileSize) {
-      const scale = Math.pow(2, SQUADRATS_ZOOM - zoom);
-      const minSqX = Math.floor(tileX * scale);
-      const minSqY = Math.floor(tileY * scale);
-      const maxSqX = Math.ceil((tileX + 1) * scale) - 1;
-      const maxSqY = Math.ceil((tileY + 1) * scale) - 1;
-      const cellPx = tileSize / scale;
-      if (cellPx < 1) return;
-
-      ctx.fillStyle = '#4cf095';
-      ctx.globalAlpha = 0.5;
-
-      for (let sx = minSqX; sx <= maxSqX; sx++) {
-        for (let sy = minSqY; sy <= maxSqY; sy++) {
-          if (this._newTiles.has(`${sx}-${sy}`)) {
-            const px = (sx - tileX * scale) * cellPx;
-            const py = (sy - tileY * scale) * cellPx;
-            ctx.fillRect(px, py, cellPx, cellPx);
-          }
-        }
-      }
-      ctx.globalAlpha = 1;
     }
   });
 }
 
-function getRouteSquadrats() {
-  if (routeCoordinates.length < 2 || !squadratsRaw14) return null;
-
+function getRouteNewTiles(zoom, rawSet) {
+  if (routeCoordinates.length < 2 || !rawSet) return null;
   const newTiles = new Set();
   let prevKey = null;
-
   for (const [lat, lng] of routeCoordinates) {
-    const tx = lon2tile(lng, SQUADRATS_ZOOM);
-    const ty = lat2tile(lat, SQUADRATS_ZOOM);
-    const key = `${tx}-${ty}`;
+    const key = `${lon2tile(lng, zoom)}-${lat2tile(lat, zoom)}`;
     if (key !== prevKey) {
-      if (!squadratsRaw14.has(key)) newTiles.add(key);
+      if (!rawSet.has(key)) newTiles.add(key);
       prevKey = key;
     }
   }
   return newTiles;
 }
 
-function updateSquadratsNewLayer() {
-  if (!squadratsEnabled || !squadratsShowNew || !squadratsNewLayer) return;
-  const newTiles = getRouteSquadrats();
-  squadratsNewLayer.setNewTiles(newTiles);
+function updateSqNewLayer() {
+  if (!sqEnabled || !sqShowNew || !sqNewLayer) return;
+  const new14 = getRouteNewTiles(SQ_ZOOM, sqRaw[14]);
+  const new17 = getRouteNewTiles(SQINHO_ZOOM, sqRaw[17]);
+  sqNewLayer.setNewTiles(new14, new17);
 
   const statsEl = document.getElementById('squadrats-status');
-  if (newTiles?.size && statsEl.style.display !== 'none') {
-    const existing = statsEl.querySelector('.sq-route-new');
-    const html = `<span class="sq-stat sq-route-new">Route: <strong>+${newTiles.size}</strong> new</span>`;
+  if (statsEl.style.display === 'none') return;
+
+  const parts = [];
+  if (new14?.size) parts.push(`<strong>+${new14.size}</strong> sq`);
+  if (new17?.size) parts.push(`<strong>+${new17.size}</strong> inho`);
+
+  const existing = statsEl.querySelector('.sq-route-new');
+  if (parts.length) {
+    const html = `<span class="sq-stat sq-route-new">Route: ${parts.join(', ')}</span>`;
     if (existing) existing.outerHTML = html;
     else {
       const container = statsEl.querySelector('.sq-stats');
       if (container) container.insertAdjacentHTML('beforeend', html);
     }
+  } else if (existing) {
+    existing.remove();
   }
+}
+
+function _parseRawSet(data) {
+  if (!data) return null;
+  if (data instanceof Set) return data;
+  if (Array.isArray(data)) return new Set(data);
+  return new Set(Object.keys(data));
 }
 
 async function loadSquadratsData() {
@@ -935,59 +912,60 @@ async function loadSquadratsData() {
     return false;
   }
 
-  if (result?.raw?.[14]) {
-    squadratsRaw14 = new Set(Array.isArray(result.raw[14]) ? result.raw[14] : Object.keys(result.raw[14]));
-  } else {
+  sqRaw[14] = _parseRawSet(result?.raw?.[14]);
+  sqRaw[17] = _parseRawSet(result?.raw?.[17]);
+
+  if (!sqRaw[14] && !sqRaw[17]) {
     statusEl.className = 'squadrats-status error';
     statusEl.textContent = 'No tile data received.';
     return false;
   }
 
+  const parts = [];
+  if (sqRaw[14]) parts.push(`<span class="sq-stat">Squadrats: <strong>${sqRaw[14].size}</strong></span>`);
+  if (sqRaw[17]) parts.push(`<span class="sq-stat">Inhos: <strong>${sqRaw[17].size}</strong></span>`);
   statusEl.className = 'squadrats-status';
-  statusEl.innerHTML = `<div class="sq-stats"><span class="sq-stat">Tiles: <strong>${squadratsRaw14.size}</strong></span></div>`;
+  statusEl.innerHTML = `<div class="sq-stats">${parts.join('')}</div>`;
   return true;
 }
 
 async function toggleSquadrats(show) {
   if (!show) {
-    if (squadratsTileLayer) { map.removeLayer(squadratsTileLayer); }
-    if (squadratsGridLayer) { map.removeLayer(squadratsGridLayer); }
-    if (squadratsNewLayer) { map.removeLayer(squadratsNewLayer); }
+    if (sqTileLayer) map.removeLayer(sqTileLayer);
+    if (sqGridLayer) map.removeLayer(sqGridLayer);
+    if (sqNewLayer) map.removeLayer(sqNewLayer);
     document.getElementById('squadrats-controls').style.display = 'none';
     document.getElementById('squadrats-status').style.display = 'none';
-    squadratsEnabled = false;
+    sqEnabled = false;
     return;
   }
 
-  squadratsEnabled = true;
+  sqEnabled = true;
   document.getElementById('squadrats-controls').style.display = 'block';
 
-  if (!squadratsRaw14) {
+  if (!sqRaw[14] && !sqRaw[17]) {
     const ok = await loadSquadratsData();
     if (!ok) {
       document.getElementById('toggle-squadrats').checked = false;
-      squadratsEnabled = false;
+      sqEnabled = false;
       return;
     }
   } else {
     document.getElementById('squadrats-status').style.display = 'block';
   }
 
-  const TileLayer = createSquadratsTileLayer();
-  squadratsTileLayer = new TileLayer();
-  squadratsTileLayer.addTo(map);
+  sqTileLayer = new (createSqTileLayer())();
+  sqTileLayer.addTo(map);
 
-  if (squadratsShowGrid) {
-    const GridLayer = createSquadratsGridLayer();
-    squadratsGridLayer = new GridLayer();
-    squadratsGridLayer.addTo(map);
+  if (sqShowGrid) {
+    sqGridLayer = new (createSqGridLayer())();
+    sqGridLayer.addTo(map);
   }
 
-  if (squadratsShowNew) {
-    const NewLayer = createSquadratsNewLayer();
-    squadratsNewLayer = new NewLayer();
-    squadratsNewLayer.addTo(map);
-    updateSquadratsNewLayer();
+  if (sqShowNew) {
+    sqNewLayer = new (createSqNewLayer())();
+    sqNewLayer.addTo(map);
+    updateSqNewLayer();
   }
 }
 
@@ -996,35 +974,29 @@ document.getElementById('toggle-squadrats').addEventListener('change', (e) => {
 });
 
 document.getElementById('squadrats-opacity-slider').addEventListener('input', (e) => {
-  squadratsOpacity = parseInt(e.target.value) / 100;
+  sqOpacity = parseInt(e.target.value) / 100;
   document.getElementById('squadrats-opacity-value').textContent = `${e.target.value}%`;
-  if (squadratsTileLayer) squadratsTileLayer.redraw();
+  if (sqTileLayer) sqTileLayer.redraw();
 });
 
 document.getElementById('toggle-squadrats-grid').addEventListener('change', (e) => {
-  squadratsShowGrid = e.target.checked;
-  if (squadratsShowGrid && squadratsEnabled) {
-    if (!squadratsGridLayer) {
-      const GridLayer = createSquadratsGridLayer();
-      squadratsGridLayer = new GridLayer();
-    }
-    squadratsGridLayer.addTo(map);
-  } else if (squadratsGridLayer) {
-    map.removeLayer(squadratsGridLayer);
+  sqShowGrid = e.target.checked;
+  if (sqShowGrid && sqEnabled) {
+    if (!sqGridLayer) sqGridLayer = new (createSqGridLayer())();
+    sqGridLayer.addTo(map);
+  } else if (sqGridLayer) {
+    map.removeLayer(sqGridLayer);
   }
 });
 
 document.getElementById('toggle-squadrats-new').addEventListener('change', (e) => {
-  squadratsShowNew = e.target.checked;
-  if (squadratsShowNew && squadratsEnabled) {
-    if (!squadratsNewLayer) {
-      const NewLayer = createSquadratsNewLayer();
-      squadratsNewLayer = new NewLayer();
-    }
-    squadratsNewLayer.addTo(map);
-    updateSquadratsNewLayer();
-  } else if (squadratsNewLayer) {
-    map.removeLayer(squadratsNewLayer);
+  sqShowNew = e.target.checked;
+  if (sqShowNew && sqEnabled) {
+    if (!sqNewLayer) sqNewLayer = new (createSqNewLayer())();
+    sqNewLayer.addTo(map);
+    updateSqNewLayer();
+  } else if (sqNewLayer) {
+    map.removeLayer(sqNewLayer);
   }
 });
 
