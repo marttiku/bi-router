@@ -434,7 +434,6 @@ function updateButtons() {
   document.getElementById('btn-send-device').disabled = routeCoordinates.length < 2;
 
   if (!hasWp && deleteMode) toggleDeleteMode();
-  updatePOIButtons();
 }
 
 function toggleDeleteMode() {
@@ -745,7 +744,7 @@ let sqRaw = { 14: null, 17: null };
 let sqTileLayer = null;
 let sqNewLayer = null;
 let sqEnabled = false;
-let sqShowNew = true;
+const sqShowNew = true;
 let sqOpacity = 0.12;
 
 function lon2tile(lng, zoom) {
@@ -1017,11 +1016,8 @@ async function loadSquadratsData() {
     return false;
   }
 
-  const parts = [];
-  if (sqRaw[14]) parts.push(`<span class="sq-stat">Squadrats: <strong>${sqRaw[14].size}</strong></span>`);
-  if (sqRaw[17]) parts.push(`<span class="sq-stat">Inhos: <strong>${sqRaw[17].size}</strong></span>`);
   statusEl.className = 'squadrats-status';
-  statusEl.innerHTML = `<div class="sq-stats">${parts.join('')}</div>`;
+  statusEl.textContent = '';
   return true;
 }
 
@@ -1073,17 +1069,6 @@ document.getElementById('squadrats-opacity-slider').addEventListener('input', (e
   sqOpacity = parseInt(e.target.value) / 100;
   document.getElementById('squadrats-opacity-value').textContent = `${e.target.value}%`;
   if (sqTileLayer) sqTileLayer.redraw();
-});
-
-document.getElementById('toggle-squadrats-new').addEventListener('change', (e) => {
-  sqShowNew = e.target.checked;
-  if (sqShowNew && sqEnabled) {
-    if (!sqNewLayer) sqNewLayer = new (createSqNewLayer())();
-    sqNewLayer.addTo(map);
-    updateSqNewLayer();
-  } else if (sqNewLayer) {
-    map.removeLayer(sqNewLayer);
-  }
 });
 
 document.getElementById('detour-slider').addEventListener('input', (e) => {
@@ -1515,207 +1500,6 @@ function scheduleOptimization() {
   }
   optimizeDebounce = setTimeout(() => runOptimization(), 800);
 }
-
-// ── Pit Stop POI Search ──────────────────────────────────────────
-const POI_CATEGORIES = {
-  cafe:        { query: '["amenity"="cafe"]',        label: 'Cafe' },
-  fuel:        { query: '["amenity"="fuel"]',        label: 'Gas Station' },
-  restaurant:  { query: '["amenity"="restaurant"]',  label: 'Restaurant' },
-  convenience: { query: '["shop"="convenience"]',    label: 'Shop' },
-  viewpoint:   { query: '["tourism"="viewpoint"]',   label: 'Viewpoint' },
-};
-
-const POI_SEARCH_RADIUS_M = 1000;
-const POI_MAX_RESULTS = 5;
-let poiMarkers = [];
-let activePoi = null;
-
-function sampleRoutePoints(coords, intervalM) {
-  if (coords.length === 0) return [];
-  const samples = [coords[0]];
-  let accumulated = 0;
-  for (let i = 1; i < coords.length; i++) {
-    accumulated += haversine(coords[i - 1], coords[i]);
-    if (accumulated >= intervalM) {
-      samples.push(coords[i]);
-      accumulated = 0;
-    }
-  }
-  return samples;
-}
-
-function routeDistanceAtIndex(coords, targetIdx) {
-  let dist = 0;
-  for (let i = 1; i <= targetIdx && i < coords.length; i++) {
-    dist += haversine(coords[i - 1], coords[i]);
-  }
-  return dist;
-}
-
-function nearestRouteDistance(coords, point) {
-  let bestDist = Infinity;
-  let bestRouteDist = 0;
-  let accumulated = 0;
-
-  for (let i = 0; i < coords.length; i++) {
-    if (i > 0) accumulated += haversine(coords[i - 1], coords[i]);
-    const d = haversine(coords[i], point);
-    if (d < bestDist) {
-      bestDist = d;
-      bestRouteDist = accumulated;
-    }
-  }
-  return { offRouteDist: bestDist, alongRouteDist: bestRouteDist };
-}
-
-async function searchPOI(category) {
-  if (routeCoordinates.length < 2) return;
-
-  const cat = POI_CATEGORIES[category];
-  if (!cat) return;
-
-  clearPOIMarkers();
-  activePoi = category;
-  document.querySelectorAll('.poi-btn').forEach(b => b.classList.toggle('active', b.dataset.poi === category));
-
-  const resultsEl = document.getElementById('poi-results');
-  resultsEl.innerHTML = '<div class="poi-loading">Searching…</div>';
-
-  const samples = sampleRoutePoints(routeCoordinates, 2000);
-  const unionQueries = samples.map(([lat, lng]) =>
-    `node${cat.query}(around:${POI_SEARCH_RADIUS_M},${lat},${lng});`
-  ).join('');
-
-  const query = `[out:json][timeout:10];(${unionQueries});out body;`;
-
-  try {
-    const resp = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      body: `data=${encodeURIComponent(query)}`,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    });
-
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-
-    if (activePoi !== category) return;
-
-    const seen = new Set();
-    const pois = data.elements
-      .filter(el => {
-        if (!el.lat || !el.lon) return false;
-        const id = el.id;
-        if (seen.has(id)) return false;
-        seen.add(id);
-        return true;
-      })
-      .map(el => {
-        const { offRouteDist, alongRouteDist } = nearestRouteDistance(routeCoordinates, [el.lat, el.lon]);
-        const name = el.tags?.name || cat.label;
-        const rating = parseFloat(el.tags?.['stars'] || el.tags?.['rating'] || '');
-        return { id: el.id, lat: el.lat, lon: el.lon, name, offRouteDist, alongRouteDist, rating };
-      })
-      .filter(p => p.offRouteDist <= POI_SEARCH_RADIUS_M)
-      .sort((a, b) => a.alongRouteDist - b.alongRouteDist);
-
-    const unique = [];
-    for (const p of pois) {
-      if (unique.length >= POI_MAX_RESULTS) break;
-      const tooClose = unique.some(u => haversine([u.lat, u.lon], [p.lat, p.lon]) < 200);
-      if (!tooClose) unique.push(p);
-    }
-
-    renderPOIResults(unique, category);
-  } catch (err) {
-    console.error('POI search failed:', err);
-    if (activePoi === category) {
-      resultsEl.innerHTML = '<div class="poi-empty">Search failed. Try again.</div>';
-    }
-  }
-}
-
-function renderPOIResults(pois, category) {
-  const resultsEl = document.getElementById('poi-results');
-
-  if (pois.length === 0) {
-    resultsEl.innerHTML = `<div class="poi-empty">No ${POI_CATEGORIES[category]?.label || 'places'} found near route</div>`;
-    return;
-  }
-
-  resultsEl.innerHTML = pois.map((p, i) => {
-    const distKm = p.alongRouteDist / 1000;
-    const distLabel = distKm < 1 ? `${Math.round(p.alongRouteDist)} m` : `${distKm.toFixed(1)} km`;
-    const offLabel = p.offRouteDist > 50 ? ` · ${Math.round(p.offRouteDist)} m off` : '';
-    const ratingLabel = !isNaN(p.rating) ? ` · ★ ${p.rating.toFixed(1)}` : '';
-    return `
-      <div class="poi-item" data-idx="${i}">
-        <span class="poi-rank">${i + 1}</span>
-        <div class="poi-info">
-          <span class="poi-name">${escapeHtml(p.name)}</span>
-          <span class="poi-meta">${distLabel}${offLabel}${ratingLabel}</span>
-        </div>
-      </div>`;
-  }).join('');
-
-  pois.forEach((p, i) => {
-    const marker = L.marker([p.lat, p.lon], {
-      icon: L.divIcon({
-        className: 'poi-marker-icon',
-        html: `<div class="poi-marker">${i + 1}</div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      }),
-      zIndexOffset: 1500,
-    }).addTo(map);
-
-    marker.bindTooltip(p.name, { direction: 'top', offset: [0, -14] });
-    poiMarkers.push(marker);
-  });
-
-  resultsEl.querySelectorAll('.poi-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const idx = parseInt(el.dataset.idx);
-      const p = pois[idx];
-      if (p) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 15), { animate: true });
-    });
-  });
-}
-
-function escapeHtml(str) {
-  const el = document.createElement('span');
-  el.textContent = str;
-  return el.innerHTML;
-}
-
-function clearPOIMarkers() {
-  poiMarkers.forEach(m => map.removeLayer(m));
-  poiMarkers = [];
-}
-
-function updatePOIButtons() {
-  const enabled = routeCoordinates.length >= 2;
-  document.querySelectorAll('.poi-btn').forEach(b => { b.disabled = !enabled; });
-  if (!enabled) {
-    clearPOIMarkers();
-    activePoi = null;
-    document.querySelectorAll('.poi-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('poi-results').innerHTML = '';
-  }
-}
-
-document.querySelectorAll('.poi-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const cat = btn.dataset.poi;
-    if (activePoi === cat) {
-      clearPOIMarkers();
-      activePoi = null;
-      btn.classList.remove('active');
-      document.getElementById('poi-results').innerHTML = '';
-    } else {
-      searchPOI(cat);
-    }
-  });
-});
 
 // ── Heatmap Controls ─────────────────────────────────────────────
 document.getElementById('sport-select').addEventListener('change', () => initHeatmap());
