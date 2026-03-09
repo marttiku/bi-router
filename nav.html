@@ -313,34 +313,6 @@
       box-shadow: 0 2px 12px rgba(0,0,0,0.6);
     }
 
-    .poi-buttons {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-
-    .poi-btn {
-      padding: 5px 10px;
-      border-radius: 16px;
-      border: 1px solid #3a3a5a;
-      font-size: 12px;
-      background: #2a2a4a;
-      color: #b0b0cc;
-      cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
-      white-space: nowrap;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    .poi-btn:active { background: #3a3a5a; }
-
-    .poi-btn.active {
-      background: #fc4c02;
-      border-color: #fc4c02;
-      color: #fff;
-    }
-
-    .poi-results { margin-top: 8px; }
     .poi-results:empty { display: none; }
 
     .poi-loading {
@@ -369,17 +341,10 @@
     .poi-item:active { background: rgba(255, 255, 255, 0.08); }
 
     .poi-rank {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: #fc4c02;
-      color: #fff;
-      font-size: 11px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      font-size: 18px;
       flex-shrink: 0;
+      width: 24px;
+      text-align: center;
     }
 
     .poi-info {
@@ -405,17 +370,8 @@
     }
 
     .poi-marker {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      background: #fc4c02;
-      color: #fff;
-      font-size: 12px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+      font-size: 20px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
     }
 
     #dev-uid-input {
@@ -585,13 +541,6 @@
   </div>
 
   <div id="poi-panel" class="poi-panel" style="display:none">
-    <div id="poi-buttons" class="poi-buttons">
-      <button class="poi-btn" data-poi="cafe">☕ Cafe</button>
-      <button class="poi-btn" data-poi="fuel">⛽ Gas</button>
-      <button class="poi-btn" data-poi="restaurant">🍽 Food</button>
-      <button class="poi-btn" data-poi="convenience">🏪 Shop</button>
-      <button class="poi-btn" data-poi="viewpoint">🏔 View</button>
-    </div>
     <div id="poi-results" class="poi-results"></div>
   </div>
 
@@ -791,17 +740,19 @@
     });
 
     /* ── Pit Stop POI Search ────────────────────── */
-    const POI_CATEGORIES = {
-      cafe:        { query: '["amenity"="cafe"]',        label: 'Cafe' },
-      fuel:        { query: '["amenity"="fuel"]',        label: 'Gas Station' },
-      restaurant:  { query: '["amenity"="restaurant"]',  label: 'Restaurant' },
-      convenience: { query: '["shop"="convenience"]',    label: 'Shop' },
-      viewpoint:   { query: '["tourism"="viewpoint"]',   label: 'Viewpoint' },
-    };
+    const POI_QUERIES = [
+      '["amenity"="cafe"]',
+      '["amenity"="fuel"]',
+      '["amenity"="restaurant"]',
+      '["shop"="convenience"]',
+      '["tourism"="viewpoint"]',
+    ];
     const POI_SEARCH_RADIUS_M = 1000;
     const POI_MAX_RESULTS = 5;
     let poiMarkers = [];
-    let activePoi = null;
+    let poiActive = false;
+    let poiRequestId = 0;
+    let currentSnapIdx = 0;
 
     function escapeHtml(str) {
       const el = document.createElement('span');
@@ -843,23 +794,22 @@
       poiMarkers = [];
     }
 
-    function renderPOIResults(pois, category) {
+    function renderPOIResults(pois) {
       const resultsEl = document.getElementById('poi-results');
       if (pois.length === 0) {
-        resultsEl.innerHTML = `<div class="poi-empty">No ${POI_CATEGORIES[category]?.label || 'places'} found near route</div>`;
+        resultsEl.innerHTML = '<div class="poi-empty">No pit stops found ahead</div>';
         return;
       }
       resultsEl.innerHTML = pois.map((p, i) => {
         const distKm = p.alongRouteDist / 1000;
         const distLabel = distKm < 1 ? `${Math.round(p.alongRouteDist)} m` : `${distKm.toFixed(1)} km`;
         const offLabel = p.offRouteDist > 50 ? ` · ${Math.round(p.offRouteDist)} m off` : '';
-        const ratingLabel = !isNaN(p.rating) ? ` · ★ ${p.rating.toFixed(1)}` : '';
         return `
           <div class="poi-item" data-idx="${i}">
-            <span class="poi-rank">${i + 1}</span>
+            <span class="poi-rank">${p.icon}</span>
             <div class="poi-info">
               <span class="poi-name">${escapeHtml(p.name)}</span>
-              <span class="poi-meta">${distLabel}${offLabel}${ratingLabel}</span>
+              <span class="poi-meta">${distLabel}${offLabel}</span>
             </div>
           </div>`;
       }).join('');
@@ -868,7 +818,7 @@
         const marker = L.marker([p.lat, p.lon], {
           icon: L.divIcon({
             className: 'poi-marker-icon',
-            html: `<div class="poi-marker">${i + 1}</div>`,
+            html: `<div class="poi-marker">${p.icon}</div>`,
             iconSize: [24, 24],
             iconAnchor: [12, 12],
           }),
@@ -887,21 +837,27 @@
       });
     }
 
-    async function searchPOI(category) {
-      if (route.length < 2) return;
-      const cat = POI_CATEGORIES[category];
-      if (!cat) return;
+    function poiIcon(tags) {
+      if (tags?.tourism === 'viewpoint') return '🏔';
+      if (tags?.shop === 'convenience') return '🏪';
+      if (tags?.amenity === 'fuel') return '⛽';
+      if (tags?.amenity === 'restaurant') return '🍽';
+      return '☕';
+    }
+
+    async function searchPitStops() {
+      const forward = route.slice(currentSnapIdx);
+      if (forward.length < 2) return;
 
       clearPOIMarkers();
-      activePoi = category;
-      document.querySelectorAll('.poi-btn').forEach(b => b.classList.toggle('active', b.dataset.poi === category));
+      const reqId = ++poiRequestId;
 
       const resultsEl = document.getElementById('poi-results');
       resultsEl.innerHTML = '<div class="poi-loading">Searching…</div>';
 
-      const samples = sampleRoutePoints(route, 2000);
-      const unionQueries = samples.map(([lat, lng]) =>
-        `node${cat.query}(around:${POI_SEARCH_RADIUS_M},${lat},${lng});`
+      const samples = sampleRoutePoints(forward, 2000);
+      const unionQueries = POI_QUERIES.map(q =>
+        samples.map(([lat, lng]) => `node${q}(around:${POI_SEARCH_RADIUS_M},${lat},${lng});`).join('')
       ).join('');
       const query = `[out:json][timeout:10];(${unionQueries});out body;`;
 
@@ -913,7 +869,7 @@
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        if (activePoi !== category) return;
+        if (reqId !== poiRequestId) return;
 
         const seen = new Set();
         const pois = data.elements
@@ -924,10 +880,9 @@
             return true;
           })
           .map(el => {
-            const { offRouteDist, alongRouteDist } = nearestRouteDistance(route, [el.lat, el.lon]);
-            const name = el.tags?.name || cat.label;
-            const rating = parseFloat(el.tags?.['stars'] || el.tags?.['rating'] || '');
-            return { id: el.id, lat: el.lat, lon: el.lon, name, offRouteDist, alongRouteDist, rating };
+            const { offRouteDist, alongRouteDist } = nearestRouteDistance(forward, [el.lat, el.lon]);
+            const name = el.tags?.name || 'Pit stop';
+            return { id: el.id, lat: el.lat, lon: el.lon, name, offRouteDist, alongRouteDist, icon: poiIcon(el.tags) };
           })
           .filter(p => p.offRouteDist <= POI_SEARCH_RADIUS_M)
           .sort((a, b) => a.alongRouteDist - b.alongRouteDist);
@@ -938,10 +893,10 @@
           const tooClose = unique.some(u => haversine([u.lat, u.lon], [p.lat, p.lon]) < 200);
           if (!tooClose) unique.push(p);
         }
-        renderPOIResults(unique, category);
+        renderPOIResults(unique);
       } catch (err) {
         console.error('POI search failed:', err);
-        if (activePoi === category) {
+        if (reqId === poiRequestId) {
           resultsEl.innerHTML = '<div class="poi-empty">Search failed. Try again.</div>';
         }
       }
@@ -950,28 +905,18 @@
     const poiPanel = document.getElementById('poi-panel');
     document.getElementById('btn-poi').addEventListener('click', () => {
       const visible = poiPanel.style.display !== 'none';
-      poiPanel.style.display = visible ? 'none' : '';
-      document.getElementById('btn-poi').classList.toggle('active', !visible);
       if (visible) {
+        poiPanel.style.display = 'none';
+        document.getElementById('btn-poi').classList.remove('active');
         clearPOIMarkers();
-        activePoi = null;
-        document.querySelectorAll('.poi-btn').forEach(b => b.classList.remove('active'));
+        poiActive = false;
         document.getElementById('poi-results').innerHTML = '';
+      } else {
+        poiPanel.style.display = '';
+        document.getElementById('btn-poi').classList.add('active');
+        poiActive = true;
+        searchPitStops();
       }
-    });
-
-    document.querySelectorAll('.poi-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const cat = btn.dataset.poi;
-        if (activePoi === cat) {
-          clearPOIMarkers();
-          activePoi = null;
-          btn.classList.remove('active');
-          document.getElementById('poi-results').innerHTML = '';
-        } else {
-          searchPOI(cat);
-        }
-      });
     });
 
     /* ── Squadrats Overlay ──────────────────────── */
@@ -1617,6 +1562,7 @@
       if (!map.hasLayer(gpsDot)) gpsDot.addTo(map);
 
       const snap = snapToRoute(cur, route);
+      currentSnapIdx = snap.index;
       const remaining = routeLength(route.slice(snap.index));
       const covered = totalDistVar - remaining;
       const pct = Math.min(100, Math.round((covered / totalDistVar) * 100));
