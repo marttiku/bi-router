@@ -868,6 +868,18 @@
 
       addDetour(departIdx, rejoinIdx, detourResult.coords);
 
+      const pitMarker = L.marker(poiPt, {
+        icon: L.divIcon({
+          className: 'poi-marker-icon',
+          html: `<div class="poi-marker">${poi.icon}</div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        }),
+        zIndexOffset: 1500,
+      }).addTo(map);
+      pitMarker.bindTooltip(poi.name, { direction: 'top', offset: [0, -14] });
+      tempMarkers.push(pitMarker);
+
       clearPOIMarkers();
       poiPanel.style.display = 'none';
       document.getElementById('btn-poi').classList.remove('active');
