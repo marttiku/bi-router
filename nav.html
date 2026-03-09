@@ -777,6 +777,7 @@
     function nearestRouteDistance(coords, point) {
       let bestDist = Infinity;
       let bestRouteDist = 0;
+      let bestIdx = 0;
       let accumulated = 0;
       for (let i = 0; i < coords.length; i++) {
         if (i > 0) accumulated += haversine(coords[i - 1], coords[i]);
@@ -784,9 +785,10 @@
         if (d < bestDist) {
           bestDist = d;
           bestRouteDist = accumulated;
+          bestIdx = i;
         }
       }
-      return { offRouteDist: bestDist, alongRouteDist: bestRouteDist };
+      return { offRouteDist: bestDist, alongRouteDist: bestRouteDist, index: bestIdx };
     }
 
     function clearPOIMarkers() {
@@ -832,9 +834,45 @@
         el.addEventListener('click', () => {
           const idx = parseInt(el.dataset.idx);
           const p = pois[idx];
-          if (p) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 15), { animate: true });
+          if (p) addPitStopDetour(p, el);
         });
       });
+    }
+
+    async function addPitStopDetour(poi, cardEl) {
+      const origIdx = poi.origRouteIdx;
+      const poiPt = [poi.lat, poi.lon];
+
+      const origSnap = snapToRoute([gpsDot.getLatLng().lat, gpsDot.getLatLng().lng], originalRoute);
+      let departIdx = Math.max(origSnap.index, currentSnapIdx);
+      let routeFrom = originalRoute[departIdx];
+
+      for (const d of detours) {
+        if (departIdx >= d.departIdx && departIdx < d.rejoinIdx) {
+          departIdx = d.rejoinIdx;
+          routeFrom = d.coords[d.coords.length - 1];
+        }
+      }
+
+      const rejoinIdx = findRejoinIdx(origIdx, 300);
+      if (rejoinIdx <= departIdx) return;
+      const to = originalRoute[Math.min(rejoinIdx, originalRoute.length - 1)];
+
+      if (cardEl) cardEl.style.opacity = '0.5';
+
+      const detourResult = await fetchDetourRoute([routeFrom, poiPt, to]);
+      if (!detourResult) {
+        if (cardEl) cardEl.style.opacity = '1';
+        return;
+      }
+
+      addDetour(departIdx, rejoinIdx, detourResult.coords);
+
+      clearPOIMarkers();
+      poiPanel.style.display = 'none';
+      document.getElementById('btn-poi').classList.remove('active');
+      poiActive = false;
+      document.getElementById('poi-results').innerHTML = '';
     }
 
     function poiIcon(tags) {
@@ -846,7 +884,11 @@
     }
 
     async function searchPitStops() {
-      const forward = route.slice(currentSnapIdx);
+      const gpsLL = gpsDot.getLatLng();
+      const startIdx = (gpsLL.lat === 0 && gpsLL.lng === 0)
+        ? 0
+        : snapToRoute([gpsLL.lat, gpsLL.lng], originalRoute).index;
+      const forward = originalRoute.slice(startIdx);
       if (forward.length < 2) return;
 
       clearPOIMarkers();
@@ -880,9 +922,10 @@
             return true;
           })
           .map(el => {
-            const { offRouteDist, alongRouteDist } = nearestRouteDistance(forward, [el.lat, el.lon]);
+            const { offRouteDist, alongRouteDist, index: fwdIdx } = nearestRouteDistance(forward, [el.lat, el.lon]);
             const name = el.tags?.name || 'Pit stop';
-            return { id: el.id, lat: el.lat, lon: el.lon, name, offRouteDist, alongRouteDist, icon: poiIcon(el.tags) };
+            const origRouteIdx = startIdx + fwdIdx;
+            return { id: el.id, lat: el.lat, lon: el.lon, name, offRouteDist, alongRouteDist, origRouteIdx, icon: poiIcon(el.tags) };
           })
           .filter(p => p.offRouteDist <= POI_SEARCH_RADIUS_M)
           .sort((a, b) => a.alongRouteDist - b.alongRouteDist);
