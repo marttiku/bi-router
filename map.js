@@ -186,6 +186,101 @@ function undoLastWaypoint() {
   removeWaypoint(last.id);
 }
 
+function insertWaypointAt(latlng, index) {
+  const id = Date.now() + Math.random();
+  const icon = index === 0 ? createStartIcon() : createNumberedIcon(index);
+  const marker = L.marker(latlng, { draggable: true, icon }).addTo(map);
+
+  marker.on('dragend', () => scheduleRoute());
+  marker.on('click', (e) => {
+    if (deleteMode) {
+      L.DomEvent.stopPropagation(e);
+      removeWaypoint(id);
+    }
+  });
+  marker.on('contextmenu', (e) => {
+    L.DomEvent.stopPropagation(e);
+    removeWaypoint(id);
+  });
+
+  waypoints.splice(index, 0, { id, marker });
+  renumberWaypoints();
+  updateWaypointList();
+  scheduleRoute();
+  updateButtons();
+}
+
+function findSegmentIndex(latlng) {
+  if (waypoints.length < 2 || routeCoordinates.length < 2) return waypoints.length;
+
+  const pt = [latlng.lat, latlng.lng];
+  let minDist = Infinity, closestIdx = 0;
+  for (let i = 0; i < routeCoordinates.length; i++) {
+    const d = haversine(routeCoordinates[i], pt);
+    if (d < minDist) { minDist = d; closestIdx = i; }
+  }
+
+  const wpIndices = waypoints.map(wp => {
+    const ll = wp.marker.getLatLng();
+    let best = 0, bestD = Infinity;
+    for (let j = 0; j < routeCoordinates.length; j++) {
+      const d = haversine(routeCoordinates[j], [ll.lat, ll.lng]);
+      if (d < bestD) { bestD = d; best = j; }
+    }
+    return best;
+  });
+
+  for (let i = 0; i < wpIndices.length - 1; i++) {
+    if (closestIdx <= wpIndices[i + 1]) return i + 1;
+  }
+  return waypoints.length - 1;
+}
+
+let routeDragging = false;
+
+function setupRouteDrag() {
+  if (!routePolyline) return;
+
+  let ghostMarker = null;
+
+  routePolyline.on('mousedown', (e) => {
+    if (deleteMode) return;
+    L.DomEvent.stopPropagation(e.originalEvent);
+    L.DomEvent.preventDefault(e.originalEvent);
+
+    routeDragging = true;
+    const insertIdx = findSegmentIndex(e.latlng);
+
+    ghostMarker = L.marker(e.latlng, {
+      icon: createNumberedIcon(insertIdx),
+      zIndexOffset: 2000,
+      opacity: 0.7,
+    }).addTo(map);
+
+    map.dragging.disable();
+
+    function onMove(me) {
+      ghostMarker.setLatLng(me.latlng);
+    }
+
+    function onUp() {
+      map.off('mousemove', onMove);
+      map.off('mouseup', onUp);
+      map.dragging.enable();
+
+      const pos = ghostMarker.getLatLng();
+      map.removeLayer(ghostMarker);
+      ghostMarker = null;
+
+      insertWaypointAt(pos, insertIdx);
+      setTimeout(() => { routeDragging = false; }, 50);
+    }
+
+    map.on('mousemove', onMove);
+    map.on('mouseup', onUp);
+  });
+}
+
 function returnToStart() {
   if (waypoints.length < 2) return;
   const startLatLng = waypoints[0].marker.getLatLng();
@@ -363,8 +458,10 @@ async function updateRoute() {
       color: '#fc4c02',
       weight: 4,
       opacity: 0.85,
-      smoothFactor: 1
+      smoothFactor: 1,
+      className: 'route-line'
     }).addTo(map);
+    setupRouteDrag();
 
     updateStats(route);
     updateButtons();
@@ -1422,7 +1519,9 @@ async function runOptimization() {
       weight: 4,
       opacity: 0.85,
       smoothFactor: 1,
+      className: 'route-line'
     }).addTo(map);
+    setupRouteDrag();
 
     const optimizedDistKm = route.distance / 1000;
     const deltaKm = optimizedDistKm - baseRouteDistanceKm;
@@ -1627,7 +1726,8 @@ startGpsTracking();
 
 // ── Map Click ────────────────────────────────────────────────────
 map.on('click', (e) => {
-  if (!deleteMode) addWaypoint(e.latlng);
+  if (routeDragging || deleteMode) return;
+  addWaypoint(e.latlng);
 });
 
 // ── Init ─────────────────────────────────────────────────────────
