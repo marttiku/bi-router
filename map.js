@@ -575,45 +575,106 @@ function douglasPeucker(pts, epsilon) {
   return left.slice(0, -1).concat(right);
 }
 
-function buildNavUrl(coords, uidOverride = null) {
-  const MAX_ENCODED_LEN = 2800;
+const MAX_NAV_ENCODED_LEN = 2800;
+const MAX_NAV_URL_CHARS = 4500;
+const MAX_NAV_SQD_CHARS = 2600;
+
+function encodeNavSqdPayload(obj) {
+  try {
+    const s = JSON.stringify(obj);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+async function buildNavSquadratsParam(coords, uid) {
+  if (!uid || coords.length < 2) return '';
+  try {
+    const res = await new Promise(resolve =>
+      chrome.runtime.sendMessage(
+        { type: 'fetchSquadratsForNav', uid, routeCoords: coords },
+        resolve
+      )
+    );
+    if (!res?.raw) return '';
+
+    let packed = encodeNavSqdPayload(res.raw);
+    if (packed.length > MAX_NAV_SQD_CHARS) {
+      packed = encodeNavSqdPayload({ 14: res.raw[14] || [] });
+    }
+    if (packed.length > MAX_NAV_SQD_CHARS) {
+      const keys = res.raw[14] || [];
+      let n = Math.max(1, Math.floor((MAX_NAV_SQD_CHARS - 24) / 12));
+      while (n > 0 && encodeNavSqdPayload({ 14: keys.slice(0, n) }).length > MAX_NAV_SQD_CHARS) {
+        n = Math.floor(n * 0.85);
+      }
+      if (n < 1) return '';
+      packed = encodeNavSqdPayload({ 14: keys.slice(0, n) });
+    }
+    if (packed.length > MAX_NAV_SQD_CHARS) return '';
+    return packed;
+  } catch {
+    return '';
+  }
+}
+
+async function buildNavLinkWithHash(basePrefix, coords, uid, extraHashSuffix) {
   let pts = coords;
   let epsilon = 0.00001;
-
   let encoded = encodePolyline(pts);
-  while (encoded.length > MAX_ENCODED_LEN && epsilon < 0.01) {
+  while (encoded.length > MAX_NAV_ENCODED_LEN && epsilon < 0.01) {
     epsilon *= 2;
     pts = douglasPeucker(coords, epsilon);
     encoded = encodePolyline(pts);
   }
 
-  const baseUrl = 'https://marttiku.github.io/bi-router/nav.html';
-  let url = `${baseUrl}#${encodeURIComponent(encoded)}`;
+  const sqd = uid ? await buildNavSquadratsParam(coords, uid) : '';
 
-  const uid = uidOverride || sqRaw._uid;
-  if (uid) url += `&uid=${encodeURIComponent(uid)}`;
+  function makeUrl(enc, sqdPart) {
+    let tail = extraHashSuffix || '';
+    if (uid) tail += `&uid=${encodeURIComponent(uid)}`;
+    if (sqdPart) tail += `&sqd=${sqdPart}`;
+    return `${basePrefix}#${encodeURIComponent(enc)}${tail}`;
+  }
 
+  let url = makeUrl(encoded, sqd);
+  while (url.length > MAX_NAV_URL_CHARS && epsilon < 0.05) {
+    epsilon *= 1.5;
+    pts = douglasPeucker(coords, epsilon);
+    encoded = encodePolyline(pts);
+    url = makeUrl(encoded, sqd);
+  }
+  if (url.length > MAX_NAV_URL_CHARS && sqd) {
+    url = makeUrl(encoded, '');
+    while (url.length > MAX_NAV_URL_CHARS && epsilon < 0.08) {
+      epsilon *= 1.5;
+      pts = douglasPeucker(coords, epsilon);
+      encoded = encodePolyline(pts);
+      url = makeUrl(encoded, '');
+    }
+  }
   return url;
 }
 
-function buildDevNavUrl(coords, uidOverride = null) {
-  const MAX_ENCODED_LEN = 2800;
-  let pts = coords;
-  let epsilon = 0.00001;
-
-  let encoded = encodePolyline(pts);
-  while (encoded.length > MAX_ENCODED_LEN && epsilon < 0.01) {
-    epsilon *= 2;
-    pts = douglasPeucker(coords, epsilon);
-    encoded = encodePolyline(pts);
-  }
-
-  let url = `http://localhost:8080/nav.html#${encodeURIComponent(encoded)}&dev=1`;
-
+async function buildNavUrl(coords, uidOverride = null) {
   const uid = uidOverride || sqRaw._uid;
-  if (uid) url += `&uid=${encodeURIComponent(uid)}`;
+  return buildNavLinkWithHash(
+    'https://marttiku.github.io/bi-router/nav.html',
+    coords,
+    uid,
+    ''
+  );
+}
 
-  return url;
+async function buildDevNavUrl(coords, uidOverride = null) {
+  const uid = uidOverride || sqRaw._uid;
+  return buildNavLinkWithHash(
+    'http://localhost:8080/nav.html',
+    coords,
+    uid,
+    '&dev=1'
+  );
 }
 
 async function ensureSquadratsUid() {
@@ -717,7 +778,7 @@ function buildGoogleMapsUrl() {
 async function sendToDevice() {
   if (routeCoordinates.length < 2) return;
   const uid = await ensureSquadratsUid();
-  const navUrl = buildNavUrl(routeCoordinates, uid);
+  const navUrl = await buildNavUrl(routeCoordinates, uid);
 
   const container = document.getElementById('qr-code');
   container.innerHTML = '';
@@ -1643,18 +1704,18 @@ document.getElementById('btn-navigate').addEventListener('click', () => {
   if (routeCoordinates.length < 2) return;
   (async () => {
     const uid = await ensureSquadratsUid();
-    window.open(buildNavUrl(routeCoordinates, uid), '_blank');
+    window.open(await buildNavUrl(routeCoordinates, uid), '_blank');
   })();
 });
 document.getElementById('btn-navigate-dev').addEventListener('click', async () => {
   if (routeCoordinates.length < 2) return;
   const uid = await ensureSquadratsUid();
-  window.open(buildDevNavUrl(routeCoordinates, uid), '_blank');
+  window.open(await buildDevNavUrl(routeCoordinates, uid), '_blank');
 });
 document.getElementById('btn-share').addEventListener('click', async () => {
   if (routeCoordinates.length < 2) return;
   const uid = await ensureSquadratsUid();
-  const navUrl = buildNavUrl(routeCoordinates, uid);
+  const navUrl = await buildNavUrl(routeCoordinates, uid);
   const distKm = lastRouteDistanceKm < 10
     ? `${lastRouteDistanceKm.toFixed(1)} km`
     : `${Math.round(lastRouteDistanceKm)} km`;

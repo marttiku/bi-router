@@ -1544,6 +1544,36 @@
     }
 
     /* ── Squadrats data loading ────────────────── */
+    /** Base64url JSON payload from the extension (GitHub Pages cannot call Squadrats API — CORS only allows squadrats.com). */
+    function decodeNavSqdParam(s) {
+      if (!s || typeof s !== 'string') return null;
+      try {
+        let b = s.replace(/-/g, '+').replace(/_/g, '/');
+        while (b.length % 4) b += '=';
+        return JSON.parse(atob(b));
+      } catch {
+        return null;
+      }
+    }
+
+    function applySquadratsPayloadFromNav(payload) {
+      if (!payload || typeof payload !== 'object') return false;
+      const k14 = payload['14'];
+      const k17 = payload['17'];
+      if (k14 === undefined && k17 === undefined) return false;
+      sqSet14 = k14 !== undefined ? new Set(Array.isArray(k14) ? k14 : []) : null;
+      sqSet17 = k17 !== undefined ? new Set(Array.isArray(k17) ? k17 : []) : null;
+      if (!sqSet14 && !sqSet17) return false;
+      sqDataLoaded = true;
+      if (sqLayer) map.removeLayer(sqLayer);
+      addSqLayer();
+      computeSqOnRoute();
+      updateSqStats();
+      sqStatsEl.style.display = 'flex';
+      document.getElementById('btn-sq-opp').style.display = '';
+      return true;
+    }
+
     async function loadSquadratsForUid(uid) {
       const servers = ['https://mainframe-proxy-01.squadrats.com', 'https://mainframe-proxy-02.squadrats.com'];
       for (const base of servers) {
@@ -1568,7 +1598,12 @@
       return false;
     }
 
-    if (hashParams.uid) {
+    if (hashParams.sqd) {
+      const embedded = decodeNavSqdParam(hashParams.sqd);
+      if (!applySquadratsPayloadFromNav(embedded) && hashParams.uid) {
+        loadSquadratsForUid(hashParams.uid);
+      }
+    } else if (hashParams.uid) {
       loadSquadratsForUid(hashParams.uid);
     }
 

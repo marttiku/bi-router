@@ -26,6 +26,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'fetchSquadratsForNav') {
+    (async () => {
+      try {
+        const uid = message.uid;
+        const routeCoords = message.routeCoords;
+        if (!uid || !routeCoords?.length) {
+          sendResponse({ error: 'missing uid or route' });
+          return;
+        }
+        const full = await fetchSquadratsData(uid);
+        if (full?.error || !full?.raw) {
+          sendResponse({ error: full?.error || 'no raw' });
+          return;
+        }
+        const filtered = squadratsRawForNavRoute(full.raw, routeCoords);
+        if (!filtered) {
+          sendResponse({ error: 'filter empty' });
+          return;
+        }
+        sendResponse({ raw: filtered });
+      } catch (e) {
+        sendResponse({ error: String(e) });
+      }
+    })();
+    return true;
+  }
+
   if (message.type === 'getSquadratsUid') {
     chrome.storage.local.get(['squadrats_uid'], (result) => {
       sendResponse({ uid: result?.squadrats_uid || null });
@@ -45,6 +72,73 @@ const SQUADRATS_MAINFRAMES = [
   'https://mainframe-proxy-01.squadrats.com',
   'https://mainframe-proxy-02.squadrats.com',
 ];
+
+function tile2latSq(y, z) {
+  const n = Math.PI - 2 * Math.PI * y / (1 << z);
+  return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}
+
+function tile2lonSq(x, z) {
+  return x / (1 << z) * 360 - 180;
+}
+
+function tileCenterFromSquadratKey(key, z) {
+  const parts = String(key).split('-').map(Number);
+  if (parts.length !== 2 || parts.some(n => Number.isNaN(n))) return null;
+  const [x, y] = parts;
+  return [
+    (tile2latSq(y, z) + tile2latSq(y + 1, z)) / 2,
+    (tile2lonSq(x, z) + tile2lonSq(x + 1, z)) / 2,
+  ];
+}
+
+function routeBBoxDeg(routeCoords, padDeg) {
+  let minLat = 90;
+  let maxLat = -90;
+  let minLng = 180;
+  let maxLng = -180;
+  for (const p of routeCoords) {
+    const lat = p[0];
+    const lng = p[1];
+    if (typeof lat !== 'number' || typeof lng !== 'number') continue;
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+    minLng = Math.min(minLng, lng);
+    maxLng = Math.max(maxLng, lng);
+  }
+  return {
+    minLat: minLat - padDeg,
+    maxLat: maxLat + padDeg,
+    minLng: minLng - padDeg,
+    maxLng: maxLng + padDeg,
+  };
+}
+
+function filterSquadratKeys(rawSlice, z, bbox) {
+  if (rawSlice == null) return [];
+  const keys = Array.isArray(rawSlice) ? rawSlice : Object.keys(rawSlice);
+  const out = [];
+  for (const k of keys) {
+    const c = tileCenterFromSquadratKey(k, z);
+    if (!c) continue;
+    if (c[0] < bbox.minLat || c[0] > bbox.maxLat || c[1] < bbox.minLng || c[1] > bbox.maxLng) continue;
+    out.push(k);
+  }
+  return out;
+}
+
+/** Visited tile keys limited to a padded bbox around the route (for embedding in nav URL). */
+function squadratsRawForNavRoute(raw, routeCoords) {
+  if (!raw || !routeCoords?.length) return null;
+  const padDeg = 0.06;
+  const bbox = routeBBoxDeg(routeCoords, padDeg);
+  const out = {};
+  if (raw[14] != null) out[14] = filterSquadratKeys(raw[14], 14, bbox);
+  if (raw[17] != null) out[17] = filterSquadratKeys(raw[17], 17, bbox);
+  if (out[14] === undefined && out[17] === undefined) return null;
+  return out;
+}
+
 
 async function fetchSquadratsData(uid) {
   if (!uid) return { error: 'No Squadrats UID' };
