@@ -1827,7 +1827,6 @@
       }
     };
 
-    const MAX_DEG_PER_SEC = 120;
     let _rotTarget = 0;
     let _rotAnimFrame = null;
     let _rotLastTime = 0;
@@ -1844,8 +1843,17 @@
       });
     }
 
-    function rotateMap(deg, immediate = false) {
-      _rotTarget = deg;
+    const MAP_ROT_MAX_DEG_PER_SEC = 45;
+    const MAP_ROT_DEADBAND_DEG = 7;
+
+    function rotateMap(deg, immediate = false, forceApply = false) {
+      const target = ((Number(deg) || 0) % 360 + 360) % 360;
+      const diff = shortestAngleDelta(_mapRotation, target);
+      const targetIsNorth = Math.abs(shortestAngleDelta(target, 0)) < 0.25;
+      if (!forceApply && !targetIsNorth && Math.abs(diff) < MAP_ROT_DEADBAND_DEG) {
+        return;
+      }
+      _rotTarget = target;
       if (immediate) {
         _mapRotation = ((_rotTarget % 360) + 360) % 360;
         if (_rotAnimFrame) {
@@ -1869,7 +1877,7 @@
       if (diff > 180) diff -= 360;
       if (diff < -180) diff += 360;
 
-      const maxStep = MAX_DEG_PER_SEC * dt;
+      const maxStep = MAP_ROT_MAX_DEG_PER_SEC * dt;
       if (Math.abs(diff) <= maxStep) {
         _mapRotation = _rotTarget;
         _rotAnimFrame = null;
@@ -1913,14 +1921,14 @@
       orientBtn.textContent = headingUp ? '⇧' : 'N';
       if (headingUp) {
         if (lastSpeedMps >= MAP_HEADING_UP_MIN_MPS) {
-          rotateMap(currentBearing || 0);
+          rotateMap(currentBearing || 0, true, true);
           arrowEl.style.transform = 'rotate(0deg)';
         } else {
-          rotateMap(0);
+          rotateMap(0, false, true);
           arrowEl.style.transform = `rotate(${currentBearing || 0}deg)`;
         }
       } else {
-        rotateMap(0);
+        rotateMap(0, false, true);
         arrowEl.style.transform = `rotate(${currentBearing || 0}deg)`;
       }
     });
