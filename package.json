@@ -1,0 +1,24 @@
+{
+  "name": "strava-scraper",
+  "version": "1.0.0",
+  "description": "A Chrome extension for planning cycling and walking routes using Strava's global heatmap as an overlay. See where people actually ride and run, then plan your own route with turn-by-turn mobile navigation.",
+  "main": "background.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marttiku/bi-router.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/marttiku/bi-router/issues"
+  },
+  "homepage": "https://github.com/marttiku/bi-router#readme"
+}

@@ -575,7 +575,7 @@ function douglasPeucker(pts, epsilon) {
   return left.slice(0, -1).concat(right);
 }
 
-function buildNavUrl(coords) {
+function buildNavUrl(coords, uidOverride = null) {
   const MAX_ENCODED_LEN = 2800;
   let pts = coords;
   let epsilon = 0.00001;
@@ -590,13 +590,13 @@ function buildNavUrl(coords) {
   const baseUrl = 'https://marttiku.github.io/bi-router/nav.html';
   let url = `${baseUrl}#${encodeURIComponent(encoded)}`;
 
-  const uid = sqRaw._uid;
+  const uid = uidOverride || sqRaw._uid;
   if (uid) url += `&uid=${encodeURIComponent(uid)}`;
 
   return url;
 }
 
-function buildDevNavUrl(coords) {
+function buildDevNavUrl(coords, uidOverride = null) {
   const MAX_ENCODED_LEN = 2800;
   let pts = coords;
   let epsilon = 0.00001;
@@ -610,10 +610,26 @@ function buildDevNavUrl(coords) {
 
   let url = `http://localhost:8080/nav.html#${encodeURIComponent(encoded)}&dev=1`;
 
-  const uid = sqRaw._uid;
+  const uid = uidOverride || sqRaw._uid;
   if (uid) url += `&uid=${encodeURIComponent(uid)}`;
 
   return url;
+}
+
+async function ensureSquadratsUid() {
+  if (sqRaw._uid) return sqRaw._uid;
+  try {
+    const result = await new Promise(resolve =>
+      chrome.runtime.sendMessage({ type: 'getSquadratsUid' }, resolve)
+    );
+    if (result?.uid) {
+      sqRaw._uid = result.uid;
+      return result.uid;
+    }
+  } catch {
+    // Extension messaging may be unavailable outside extension context.
+  }
+  return null;
 }
 
 // ── GPX Export ───────────────────────────────────────────────────
@@ -698,9 +714,10 @@ function buildGoogleMapsUrl() {
   return url;
 }
 
-function sendToDevice() {
+async function sendToDevice() {
   if (routeCoordinates.length < 2) return;
-  const navUrl = buildNavUrl(routeCoordinates);
+  const uid = await ensureSquadratsUid();
+  const navUrl = buildNavUrl(routeCoordinates, uid);
 
   const container = document.getElementById('qr-code');
   container.innerHTML = '';
@@ -1624,23 +1641,20 @@ document.getElementById('btn-start-here').addEventListener('click', startFromCur
 document.getElementById('btn-export').addEventListener('click', exportGPX);
 document.getElementById('btn-navigate').addEventListener('click', () => {
   if (routeCoordinates.length < 2) return;
-  window.open(buildNavUrl(routeCoordinates), '_blank');
+  (async () => {
+    const uid = await ensureSquadratsUid();
+    window.open(buildNavUrl(routeCoordinates, uid), '_blank');
+  })();
 });
 document.getElementById('btn-navigate-dev').addEventListener('click', async () => {
   if (routeCoordinates.length < 2) return;
-  if (!sqRaw._uid) {
-    try {
-      const result = await new Promise(resolve =>
-        chrome.runtime.sendMessage({ type: 'getSquadratsUid' }, resolve)
-      );
-      if (result?.uid) sqRaw._uid = result.uid;
-    } catch { /* extension API unavailable */ }
-  }
-  window.open(buildDevNavUrl(routeCoordinates), '_blank');
+  const uid = await ensureSquadratsUid();
+  window.open(buildDevNavUrl(routeCoordinates, uid), '_blank');
 });
 document.getElementById('btn-share').addEventListener('click', async () => {
   if (routeCoordinates.length < 2) return;
-  const navUrl = buildNavUrl(routeCoordinates);
+  const uid = await ensureSquadratsUid();
+  const navUrl = buildNavUrl(routeCoordinates, uid);
   const distKm = lastRouteDistanceKm < 10
     ? `${lastRouteDistanceKm.toFixed(1)} km`
     : `${Math.round(lastRouteDistanceKm)} km`;
