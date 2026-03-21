@@ -1,0 +1,11 @@
+# Optional Render Blueprint — set root to server/
+services:
+  - type: web
+    name: ride-planner-nav-snapshots
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

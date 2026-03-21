@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Strava Heatmap Route Planner",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Plan cycling routes using Strava's global heatmap overlay and export to GPX for Google Maps",
   "permissions": [
     "cookies",
@@ -11,7 +11,8 @@
   "host_permissions": [
     "*://*.strava.com/*",
     "*://gis.tallinn.ee/*",
-    "*://*.squadrats.com/*"
+    "*://*.squadrats.com/*",
+    "https://*.onrender.com/*"
   ],
   "background": {
     "service_worker": "background.js"

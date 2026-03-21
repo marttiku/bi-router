@@ -565,8 +565,9 @@
     </div>
   </div>
 
+  <script src="config.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script>
+  <script type="module">
     /* ── Polyline Decoding ─────────────────────── */
     function decodePolyline(encoded) {
       const points = [];
@@ -624,30 +625,84 @@
       document.getElementById('error-screen').style.display = 'flex';
     }
 
+    function parseNavHash(hashStr) {
+      const params = {};
+      let legacyPoly = null;
+      const parts = hashStr.split('&');
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i];
+        if (!p) continue;
+        const eq = p.indexOf('=');
+        if (eq === -1) {
+          if (i === 0) legacyPoly = p;
+        } else {
+          const k = decodeURIComponent(p.slice(0, eq));
+          const v = decodeURIComponent((p.slice(eq + 1) || '').replace(/\+/g, ' '));
+          params[k] = v;
+        }
+      }
+      return { legacyPoly, params };
+    }
+
     /* ── Parse Route & Params ──────────────────── */
     const hashStr = window.location.hash.slice(1);
     if (!hashStr) {
       showError('No Route', 'Scan a QR code from the Route Planner to start navigation.');
+      throw new Error('nav-abort');
     }
 
-    const [encodedPoly, ...paramParts] = hashStr.split('&');
-    const hashParams = {};
-    for (const p of paramParts) {
-      const [k, v] = p.split('=');
-      if (k) hashParams[k] = decodeURIComponent(v || '');
-    }
-
+    const { legacyPoly, params: hashParams } = parseNavHash(hashStr);
     const devMode = hashParams.dev === '1';
 
     let route;
-    try {
-      route = decodePolyline(decodeURIComponent(encodedPoly));
-      if (route.length < 2) throw new Error('Too few points');
-    } catch (e) {
-      showError('Invalid Route', 'Could not decode the route data. Please scan the QR code again.');
-    }
+    let snapshotRaw = null;
+    let snapshotUid = null;
 
-    if (!route) { throw new Error('abort'); }
+    if (hashParams.snap) {
+      const snapBase = typeof globalThis.NAV_SNAPSHOT_BASE === 'string'
+        ? globalThis.NAV_SNAPSHOT_BASE.replace(/\/$/, '')
+        : '';
+      if (!snapBase || snapBase.includes('YOUR-SERVICE')) {
+        showError(
+          'Not configured',
+          'Set NAV_SNAPSHOT_BASE in config.js to your Render API URL (same folder as this page).',
+        );
+        throw new Error('nav-abort');
+      }
+      const res = await fetch(`${snapBase}/sessions/${encodeURIComponent(hashParams.snap)}`);
+      if (!res.ok) {
+        showError(
+          'Link unavailable',
+          'This link expired or the server restarted. Generate a new link from the route planner.',
+        );
+        throw new Error('nav-abort');
+      }
+      const snap = await res.json();
+      if (!snap?.encodedPoly || typeof snap.encodedPoly !== 'string') {
+        showError('Invalid snapshot', 'Could not read route data. Generate a new link from the planner.');
+        throw new Error('nav-abort');
+      }
+      try {
+        route = decodePolyline(snap.encodedPoly);
+        if (route.length < 2) throw new Error('Too few points');
+      } catch (e) {
+        showError('Invalid Route', 'Could not decode the route. Generate a new link from the planner.');
+        throw new Error('nav-abort');
+      }
+      snapshotRaw = snap.raw != null ? snap.raw : null;
+      snapshotUid = snap.uid != null ? snap.uid : null;
+    } else if (legacyPoly) {
+      try {
+        route = decodePolyline(decodeURIComponent(legacyPoly));
+        if (route.length < 2) throw new Error('Too few points');
+      } catch (e) {
+        showError('Invalid Route', 'Could not decode the route data. Please scan the QR code again.');
+        throw new Error('nav-abort');
+      }
+    } else {
+      showError('No Route', 'Scan a QR code from the Route Planner to start navigation.');
+      throw new Error('nav-abort');
+    }
 
     const originalRoute = route.map(p => [...p]);
     let detours = [];
@@ -1544,32 +1599,10 @@
     }
 
     /* ── Squadrats data loading ────────────────── */
-    /** Base64url JSON payload from the extension (GitHub Pages cannot call Squadrats API — CORS only allows squadrats.com). */
-    function decodeNavSqdParam(s) {
-      if (!s || typeof s !== 'string') return null;
-      try {
-        let b = s.replace(/-/g, '+').replace(/_/g, '/');
-        while (b.length % 4) b += '=';
-        return JSON.parse(atob(b));
-      } catch {
-        return null;
-      }
-    }
-
-    function squadratKeysFromPayload(val) {
-      if (val === undefined) return null;
-      if (Array.isArray(val)) return new Set(val);
-      if (typeof val === 'string') return new Set(val.split(',').filter(Boolean));
-      return new Set();
-    }
-
-    function applySquadratsPayloadFromNav(payload) {
-      if (!payload || typeof payload !== 'object') return false;
-      const k14 = payload['14'];
-      const k17 = payload['17'];
-      if (k14 === undefined && k17 === undefined) return false;
-      sqSet14 = k14 !== undefined ? squadratKeysFromPayload(k14) : null;
-      sqSet17 = k17 !== undefined ? squadratKeysFromPayload(k17) : null;
+    function applySquadratsApiRaw(raw) {
+      if (!raw || typeof raw !== 'object') return false;
+      sqSet14 = raw[14] ? new Set(Array.isArray(raw[14]) ? raw[14] : Object.keys(raw[14])) : null;
+      sqSet17 = raw[17] ? new Set(Array.isArray(raw[17]) ? raw[17] : Object.keys(raw[17])) : null;
       if (!sqSet14 && !sqSet17) return false;
       sqDataLoaded = true;
       if (sqLayer) map.removeLayer(sqLayer);
@@ -1605,11 +1638,10 @@
       return false;
     }
 
-    if (hashParams.sqd) {
-      const embedded = decodeNavSqdParam(hashParams.sqd);
-      if (!applySquadratsPayloadFromNav(embedded) && hashParams.uid) {
-        loadSquadratsForUid(hashParams.uid);
-      }
+    if (snapshotRaw && applySquadratsApiRaw(snapshotRaw)) {
+      /* full tiles from snapshot API */
+    } else if (snapshotUid) {
+      loadSquadratsForUid(snapshotUid);
     } else if (hashParams.uid) {
       loadSquadratsForUid(hashParams.uid);
     }

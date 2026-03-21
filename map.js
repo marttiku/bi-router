@@ -575,104 +575,44 @@ function douglasPeucker(pts, epsilon) {
   return left.slice(0, -1).concat(right);
 }
 
-const MAX_NAV_ENCODED_LEN = 2800;
-const MAX_NAV_URL_CHARS = 5200;
-const MAX_NAV_SQD_CHARS = 3200;
-
-function encodeNavSqdPayload(obj) {
-  try {
-    const s = JSON.stringify(obj);
-    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  } catch {
-    return '';
-  }
+function navSnapshotBaseUrl() {
+  const b = globalThis.NAV_SNAPSHOT_BASE;
+  if (typeof b !== 'string' || !b.trim() || b.includes('YOUR-SERVICE')) return '';
+  return b.replace(/\/$/, '');
 }
 
-function flattenSquadratKeys(slice) {
-  if (slice == null) return [];
-  return Array.isArray(slice) ? slice : Object.keys(slice);
-}
+/** Publish full route + Squadrats raw to ephemeral API; returns snapshot id. */
+async function createNavSnapshot(coords, uid) {
+  const base = navSnapshotBaseUrl();
+  if (!base) throw new Error('NAV_SNAPSHOT_BASE not configured');
 
-/** Compact comma-separated keys in JSON (smaller than string arrays); nav accepts arrays too. */
-function packNavSqdObject(k14, k17, n14, n17) {
-  const o = {};
-  if (n14 > 0) o['14'] = k14.slice(0, n14).join(',');
-  if (n17 > 0) o['17'] = k17.slice(0, n17).join(',');
-  return o;
-}
-
-async function buildNavSquadratsParam(coords, uid) {
-  if (!uid || coords.length < 2) return '';
-  try {
+  const encodedPoly = encodePolyline(coords);
+  let raw = null;
+  if (uid) {
     const res = await new Promise(resolve =>
-      chrome.runtime.sendMessage(
-        { type: 'fetchSquadratsForNav', uid, routeCoords: coords },
-        resolve
-      )
+      chrome.runtime.sendMessage({ type: 'fetchSquadrats', uid }, resolve)
     );
-    if (!res?.raw) return '';
-
-    const k14 = flattenSquadratKeys(res.raw[14]);
-    const k17 = flattenSquadratKeys(res.raw[17]);
-    let n14 = k14.length;
-    let n17 = k17.length;
-    if (n14 === 0 && n17 === 0) return '';
-
-    let packed = encodeNavSqdPayload(packNavSqdObject(k14, k17, n14, n17));
-    while (packed.length > MAX_NAV_SQD_CHARS && (n14 > 0 || n17 > 0)) {
-      // Prefer trimming z17 (inho) more — there are more keys — but keep some z17 until forced off
-      if (n17 > 0 && (n14 === 0 || k17.length >= k14.length)) {
-        n17 = Math.max(0, Math.floor(n17 * 0.55));
-      } else if (n14 > 0) {
-        n14 = Math.max(0, Math.floor(n14 * 0.82));
-      } else {
-        n17 = Math.max(0, Math.floor(n17 * 0.55));
-      }
-      packed = encodeNavSqdPayload(packNavSqdObject(k14, k17, n14, n17));
-    }
-    if (packed.length > MAX_NAV_SQD_CHARS || (n14 === 0 && n17 === 0)) return '';
-    return packed;
-  } catch {
-    return '';
+    if (res?.raw) raw = res.raw;
   }
+
+  const r = await fetch(`${base}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ encodedPoly, uid: uid || null, raw }),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `snapshot HTTP ${r.status}`);
+  }
+  const data = await r.json();
+  if (!data?.id) throw new Error('snapshot response missing id');
+  return data.id;
 }
 
 async function buildNavLinkWithHash(basePrefix, coords, uid, extraHashSuffix) {
-  let pts = coords;
-  let epsilon = 0.00001;
-  let encoded = encodePolyline(pts);
-  while (encoded.length > MAX_NAV_ENCODED_LEN && epsilon < 0.01) {
-    epsilon *= 2;
-    pts = douglasPeucker(coords, epsilon);
-    encoded = encodePolyline(pts);
-  }
-
-  const sqd = uid ? await buildNavSquadratsParam(coords, uid) : '';
-
-  function makeUrl(enc, sqdPart) {
-    let tail = extraHashSuffix || '';
-    if (uid) tail += `&uid=${encodeURIComponent(uid)}`;
-    if (sqdPart) tail += `&sqd=${sqdPart}`;
-    return `${basePrefix}#${encodeURIComponent(enc)}${tail}`;
-  }
-
-  let url = makeUrl(encoded, sqd);
-  while (url.length > MAX_NAV_URL_CHARS && epsilon < 0.05) {
-    epsilon *= 1.5;
-    pts = douglasPeucker(coords, epsilon);
-    encoded = encodePolyline(pts);
-    url = makeUrl(encoded, sqd);
-  }
-  if (url.length > MAX_NAV_URL_CHARS && sqd) {
-    url = makeUrl(encoded, '');
-    while (url.length > MAX_NAV_URL_CHARS && epsilon < 0.08) {
-      epsilon *= 1.5;
-      pts = douglasPeucker(coords, epsilon);
-      encoded = encodePolyline(pts);
-      url = makeUrl(encoded, '');
-    }
-  }
-  return url;
+  const snapId = await createNavSnapshot(coords, uid);
+  const tail = extraHashSuffix || '';
+  return `${basePrefix}#snap=${encodeURIComponent(snapId)}${tail}`;
 }
 
 async function buildNavUrl(coords, uidOverride = null) {
@@ -795,8 +735,19 @@ function buildGoogleMapsUrl() {
 
 async function sendToDevice() {
   if (routeCoordinates.length < 2) return;
-  const uid = await ensureSquadratsUid();
-  const navUrl = await buildNavUrl(routeCoordinates, uid);
+  let navUrl;
+  try {
+    const uid = await ensureSquadratsUid();
+    navUrl = await buildNavUrl(routeCoordinates, uid);
+  } catch (e) {
+    console.error('Nav snapshot failed:', e);
+    showToast(
+      'Could not publish nav link. Set NAV_SNAPSHOT_BASE in config.js to your Render URL and reload the extension.',
+      'error',
+      8000
+    );
+    return;
+  }
 
   const container = document.getElementById('qr-code');
   container.innerHTML = '';
@@ -1721,19 +1672,44 @@ document.getElementById('btn-export').addEventListener('click', exportGPX);
 document.getElementById('btn-navigate').addEventListener('click', () => {
   if (routeCoordinates.length < 2) return;
   (async () => {
-    const uid = await ensureSquadratsUid();
-    window.open(await buildNavUrl(routeCoordinates, uid), '_blank');
+    try {
+      const uid = await ensureSquadratsUid();
+      window.open(await buildNavUrl(routeCoordinates, uid), '_blank');
+    } catch (e) {
+      console.error(e);
+      showToast(
+        'Nav link failed. Configure NAV_SNAPSHOT_BASE in config.js (Render API).',
+        'error',
+        7000
+      );
+    }
   })();
 });
 document.getElementById('btn-navigate-dev').addEventListener('click', async () => {
   if (routeCoordinates.length < 2) return;
-  const uid = await ensureSquadratsUid();
-  window.open(await buildDevNavUrl(routeCoordinates, uid), '_blank');
+  try {
+    const uid = await ensureSquadratsUid();
+    window.open(await buildDevNavUrl(routeCoordinates, uid), '_blank');
+  } catch (e) {
+    console.error(e);
+    showToast(
+      'Nav link failed. Configure NAV_SNAPSHOT_BASE and ensure the API is running.',
+      'error',
+      7000
+    );
+  }
 });
 document.getElementById('btn-share').addEventListener('click', async () => {
   if (routeCoordinates.length < 2) return;
-  const uid = await ensureSquadratsUid();
-  const navUrl = await buildNavUrl(routeCoordinates, uid);
+  let navUrl;
+  try {
+    const uid = await ensureSquadratsUid();
+    navUrl = await buildNavUrl(routeCoordinates, uid);
+  } catch (e) {
+    console.error(e);
+    showToast('Share link failed. Configure NAV_SNAPSHOT_BASE in config.js.', 'error', 7000);
+    return;
+  }
   const distKm = lastRouteDistanceKm < 10
     ? `${lastRouteDistanceKm.toFixed(1)} km`
     : `${Math.round(lastRouteDistanceKm)} km`;
