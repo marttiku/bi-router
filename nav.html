@@ -703,6 +703,11 @@
       attributionControl: false,
     }).fitBounds(route.map(p => [p[0], p[1]]), { padding: [30, 30] });
 
+    map.createPane('squadratsOverlay');
+    const squadratsPane = map.getPane('squadratsOverlay');
+    squadratsPane.style.zIndex = '450';
+    squadratsPane.style.pointerEvents = 'none';
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
     }).addTo(map);
@@ -1128,7 +1133,7 @@
     function addSqLayer() {
       if (!sqSet14 && !sqSet17) return;
       const SqLayer = L.GridLayer.extend({
-        options: { tileSize: 256 },
+        options: { tileSize: 256, pane: 'squadratsOverlay', zIndex: 10 },
         createTile(coords, done) {
           const c = document.createElement('canvas');
           const dpr = window.devicePixelRatio || 1;
@@ -1139,12 +1144,12 @@
           g.scale(dpr, dpr);
           setTimeout(() => {
             if (sqSet14) {
-              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, sqSet14, '#663399', 0.25);
-              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, sqSet14, '#663399', 1, 0.4);
+              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, sqSet14, '#663399', 0.32);
+              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQ_Z, sqSet14, '#663399', 1, 0.45);
             }
             if (sqSet17) {
-              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, sqSet17, '#996633', 0.18);
-              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, sqSet17, '#996633', 0.5, 0.35);
+              drawUnvisited(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, sqSet17, '#996633', 0.22);
+              drawBorders(g, coords.x, coords.y, coords.z, sz.x, SQINHO_Z, sqSet17, '#996633', 0.5, 0.4);
             }
             done(null, c);
           }, 0);
@@ -1576,6 +1581,13 @@
     let startTime = null;
     let lastPositions = [];
     let sqOppEnabled = false;
+    let gpsTrackPath = [];
+    let gpsTrackLengthM = 0;
+    let rideMovingMs = 0;
+    let lastPositionTickTime = null;
+    const TRACK_MIN_SEGMENT_M = 2;
+    const RIDE_MOVING_MIN_MPS = 0.5;
+    const ETA_MIN_SPEED_MPS = 0.5;
 
     const distEl = document.getElementById('dist-remaining');
     const etaEl = document.getElementById('eta');
@@ -1594,6 +1606,15 @@
       if (mins < 60) return `${mins} min`;
       const h = Math.floor(mins / 60), m = mins % 60;
       return `${h}h ${m}m`;
+    }
+
+    function formatEtaArrival(etaMs) {
+      const totalMins = Math.max(1, Math.round(etaMs / 60000));
+      const arrival = new Date(Date.now() + etaMs);
+      const hh = arrival.getHours();
+      const mm = String(arrival.getMinutes()).padStart(2, '0');
+      const minsWord = totalMins === 1 ? '1 min' : `${totalMins} mins`;
+      return `${hh}:${mm} (${minsWord})`;
     }
 
     function shortestAngleDelta(fromDeg, toDeg) {
@@ -1639,25 +1660,6 @@
       gpsDot.setLatLng(cur);
       if (!map.hasLayer(gpsDot)) gpsDot.addTo(map);
 
-      const snap = snapToRoute(cur, route);
-      currentSnapIdx = snap.index;
-      const remaining = routeLength(route.slice(snap.index));
-      const covered = totalDistVar - remaining;
-      const pct = Math.min(100, Math.round((covered / totalDistVar) * 100));
-
-      travelledLine.setLatLngs(route.slice(0, snap.index + 1));
-
-      distEl.textContent = formatDist(remaining);
-      coveredEl.textContent = formatDist(covered);
-      progEl.textContent = `${pct}%`;
-
-      const elapsedMs = now - startTime;
-      const elapsedMins = Math.round(elapsedMs / 60000);
-      elapsedEl.textContent = formatTime(elapsedMins);
-
-      const avgKmh = elapsedMs > 10000 ? (covered / 1000) / (elapsedMs / 3600000) : 0;
-      avgSpeedEl.textContent = avgKmh > 0.5 ? `${avgKmh.toFixed(1)}` : '—';
-
       const gpsSpeed = pos.coords.speed;
       let speedMpsForRotation = 0;
       if (gpsSpeed != null && gpsSpeed >= 0) {
@@ -1673,18 +1675,80 @@
             const ds = haversine(first.pos, last.pos);
             speedMpsForRotation = ds / dt;
             curSpeedEl.textContent = `${(ds / dt * 3.6).toFixed(1)}`;
+          } else {
+            curSpeedEl.textContent = '—';
           }
+        } else {
+          curSpeedEl.textContent = '—';
         }
       }
 
-      const etaMs = avgKmh > 0.5 ? (remaining / 1000) / avgKmh * 3600000 : remaining / (5 / 3.6) * 1000;
-      etaEl.textContent = formatTime(Math.round(etaMs / 60000));
+      if (lastPositionTickTime != null) {
+        const dtTick = Math.min(now - lastPositionTickTime, 5000);
+        if (speedMpsForRotation >= RIDE_MOVING_MIN_MPS) rideMovingMs += dtTick;
+      }
+      lastPositionTickTime = now;
 
-      const nextIdx = Math.min(snap.index + 3, route.length - 1);
-      const rawBrng = bearing(cur, route[nextIdx]);
+      if (gpsTrackPath.length === 0) {
+        gpsTrackPath.push(cur);
+      } else {
+        const lastPt = gpsTrackPath[gpsTrackPath.length - 1];
+        const seg = haversine(lastPt, cur);
+        if (seg >= TRACK_MIN_SEGMENT_M) {
+          gpsTrackLengthM += seg;
+          gpsTrackPath.push(cur);
+        }
+      }
+
+      const snap = snapToRoute(cur, route);
+      currentSnapIdx = snap.index;
+      const remaining = routeLength(route.slice(snap.index));
+
+      const trail = [...gpsTrackPath];
+      if (trail.length === 0) {
+        travelledLine.setLatLngs([cur]);
+      } else {
+        const lastTrail = trail[trail.length - 1];
+        if (trail.length === 1 || haversine(lastTrail, cur) > 0.3) trail.push(cur);
+        travelledLine.setLatLngs(trail);
+      }
+
+      const denomProgress = gpsTrackLengthM + remaining;
+      const pct = remaining < 30 ? 100 : (denomProgress > 0 ? Math.min(100, Math.round((gpsTrackLengthM / denomProgress) * 100)) : 0);
+
+      distEl.textContent = formatDist(remaining);
+      coveredEl.textContent = formatDist(gpsTrackLengthM);
+      progEl.textContent = `${pct}%`;
+
+      const elapsedMinsMoving = Math.round(rideMovingMs / 60000);
+      elapsedEl.textContent = formatTime(Math.max(0, elapsedMinsMoving));
+
+      const avgKmh = rideMovingMs > 10000 ? (gpsTrackLengthM / 1000) / (rideMovingMs / 3600000) : 0;
+      avgSpeedEl.textContent = avgKmh > 0.5 ? `${avgKmh.toFixed(1)}` : '—';
+
+      let rawBrng;
       const HEADING_UPDATE_MIN_SPEED_MPS = 0.4;
+      if (gpsTrackPath.length >= 2) {
+        const a = gpsTrackPath[gpsTrackPath.length - 2];
+        const b = gpsTrackPath[gpsTrackPath.length - 1];
+        if (haversine(a, b) >= 1) rawBrng = bearing(a, b);
+      }
+      if (rawBrng == null && pos.coords.heading != null && !Number.isNaN(pos.coords.heading) && speedMpsForRotation >= HEADING_UPDATE_MIN_SPEED_MPS) {
+        rawBrng = pos.coords.heading;
+      }
+      if (rawBrng == null) {
+        const nextIdx = Math.min(snap.index + 3, route.length - 1);
+        rawBrng = bearing(cur, route[nextIdx]);
+      }
       if (speedMpsForRotation >= HEADING_UPDATE_MIN_SPEED_MPS || filteredBearing == null) {
         currentBearing = smoothBearing(rawBrng, speedMpsForRotation);
+      }
+
+      if (remaining >= 30 && speedMpsForRotation >= ETA_MIN_SPEED_MPS) {
+        const etaMs = (remaining / speedMpsForRotation) * 1000;
+        etaEl.textContent = formatEtaArrival(etaMs);
+      } else if (remaining >= 30) {
+        etaEl.textContent = '—';
       }
 
       if (headingUp) {
@@ -1721,7 +1785,7 @@
         if (headingUp) {
           const point = map.project(L.latLng(cur[0], cur[1]), zoom);
           const offsetPx = map.getSize().y * 0.25;
-          const bRad = toRad(brng);
+          const bRad = toRad(currentBearing);
           point.x += Math.sin(bRad) * offsetPx;
           point.y -= Math.cos(bRad) * offsetPx;
           const center = map.unproject(point, zoom);
