@@ -1588,6 +1588,8 @@
     const TRACK_MIN_SEGMENT_M = 2;
     const RIDE_MOVING_MIN_MPS = 0.5;
     const ETA_MIN_SPEED_MPS = 0.5;
+    const MAP_HEADING_UP_MIN_MPS = 1.2;
+    let lastSpeedMps = 0;
 
     const distEl = document.getElementById('dist-remaining');
     const etaEl = document.getElementById('eta');
@@ -1682,6 +1684,7 @@
           curSpeedEl.textContent = '—';
         }
       }
+      lastSpeedMps = speedMpsForRotation;
 
       if (lastPositionTickTime != null) {
         const dtTick = Math.min(now - lastPositionTickTime, 5000);
@@ -1751,9 +1754,10 @@
         etaEl.textContent = '—';
       }
 
-      if (headingUp) {
+      const mapHeadingUp = headingUp && speedMpsForRotation >= MAP_HEADING_UP_MIN_MPS;
+      if (mapHeadingUp) {
         arrowEl.style.transform = 'rotate(0deg)';
-        rotateMap(currentBearing, speedMpsForRotation >= MOVING_SPEED_MPS);
+        rotateMap(currentBearing, true);
       } else {
         arrowEl.style.transform = `rotate(${currentBearing}deg)`;
         rotateMap(0);
@@ -1782,7 +1786,7 @@
       if (following) {
         const zoom = Math.max(map.getZoom(), 16);
         const anim = !devMode;
-        if (headingUp) {
+        if (headingUp && speedMpsForRotation >= MAP_HEADING_UP_MIN_MPS) {
           const point = map.project(L.latLng(cur[0], cur[1]), zoom);
           const offsetPx = map.getSize().y * 0.25;
           const bRad = toRad(currentBearing);
@@ -1824,7 +1828,6 @@
     };
 
     const MAX_DEG_PER_SEC = 120;
-    const MOVING_SPEED_MPS = 1.2;
     let _rotTarget = 0;
     let _rotAnimFrame = null;
     let _rotLastTime = 0;
@@ -1891,7 +1894,7 @@
       const ll = gpsDot.getLatLng();
       if (ll.lat !== 0 || ll.lng !== 0) {
         const zoom = Math.max(map.getZoom(), 16);
-        if (headingUp) {
+        if (headingUp && lastSpeedMps >= MAP_HEADING_UP_MIN_MPS) {
           const point = map.project(ll, zoom);
           const offsetPx = map.getSize().y * 0.25;
           const bRad = toRad(currentBearing);
@@ -1909,8 +1912,13 @@
       orientBtn.classList.toggle('active', headingUp);
       orientBtn.textContent = headingUp ? '⇧' : 'N';
       if (headingUp) {
-        rotateMap(currentBearing || 0);
-        arrowEl.style.transform = 'rotate(0deg)';
+        if (lastSpeedMps >= MAP_HEADING_UP_MIN_MPS) {
+          rotateMap(currentBearing || 0);
+          arrowEl.style.transform = 'rotate(0deg)';
+        } else {
+          rotateMap(0);
+          arrowEl.style.transform = `rotate(${currentBearing || 0}deg)`;
+        }
       } else {
         rotateMap(0);
         arrowEl.style.transform = `rotate(${currentBearing || 0}deg)`;
