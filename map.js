@@ -576,8 +576,8 @@ function douglasPeucker(pts, epsilon) {
 }
 
 const MAX_NAV_ENCODED_LEN = 2800;
-const MAX_NAV_URL_CHARS = 4500;
-const MAX_NAV_SQD_CHARS = 2600;
+const MAX_NAV_URL_CHARS = 5200;
+const MAX_NAV_SQD_CHARS = 3200;
 
 function encodeNavSqdPayload(obj) {
   try {
@@ -586,6 +586,19 @@ function encodeNavSqdPayload(obj) {
   } catch {
     return '';
   }
+}
+
+function flattenSquadratKeys(slice) {
+  if (slice == null) return [];
+  return Array.isArray(slice) ? slice : Object.keys(slice);
+}
+
+/** Compact comma-separated keys in JSON (smaller than string arrays); nav accepts arrays too. */
+function packNavSqdObject(k14, k17, n14, n17) {
+  const o = {};
+  if (n14 > 0) o['14'] = k14.slice(0, n14).join(',');
+  if (n17 > 0) o['17'] = k17.slice(0, n17).join(',');
+  return o;
 }
 
 async function buildNavSquadratsParam(coords, uid) {
@@ -599,20 +612,25 @@ async function buildNavSquadratsParam(coords, uid) {
     );
     if (!res?.raw) return '';
 
-    let packed = encodeNavSqdPayload(res.raw);
-    if (packed.length > MAX_NAV_SQD_CHARS) {
-      packed = encodeNavSqdPayload({ 14: res.raw[14] || [] });
-    }
-    if (packed.length > MAX_NAV_SQD_CHARS) {
-      const keys = res.raw[14] || [];
-      let n = Math.max(1, Math.floor((MAX_NAV_SQD_CHARS - 24) / 12));
-      while (n > 0 && encodeNavSqdPayload({ 14: keys.slice(0, n) }).length > MAX_NAV_SQD_CHARS) {
-        n = Math.floor(n * 0.85);
+    const k14 = flattenSquadratKeys(res.raw[14]);
+    const k17 = flattenSquadratKeys(res.raw[17]);
+    let n14 = k14.length;
+    let n17 = k17.length;
+    if (n14 === 0 && n17 === 0) return '';
+
+    let packed = encodeNavSqdPayload(packNavSqdObject(k14, k17, n14, n17));
+    while (packed.length > MAX_NAV_SQD_CHARS && (n14 > 0 || n17 > 0)) {
+      // Prefer trimming z17 (inho) more — there are more keys — but keep some z17 until forced off
+      if (n17 > 0 && (n14 === 0 || k17.length >= k14.length)) {
+        n17 = Math.max(0, Math.floor(n17 * 0.55));
+      } else if (n14 > 0) {
+        n14 = Math.max(0, Math.floor(n14 * 0.82));
+      } else {
+        n17 = Math.max(0, Math.floor(n17 * 0.55));
       }
-      if (n < 1) return '';
-      packed = encodeNavSqdPayload({ 14: keys.slice(0, n) });
+      packed = encodeNavSqdPayload(packNavSqdObject(k14, k17, n14, n17));
     }
-    if (packed.length > MAX_NAV_SQD_CHARS) return '';
+    if (packed.length > MAX_NAV_SQD_CHARS || (n14 === 0 && n17 === 0)) return '';
     return packed;
   } catch {
     return '';

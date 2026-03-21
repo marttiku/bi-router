@@ -1556,13 +1556,20 @@
       }
     }
 
+    function squadratKeysFromPayload(val) {
+      if (val === undefined) return null;
+      if (Array.isArray(val)) return new Set(val);
+      if (typeof val === 'string') return new Set(val.split(',').filter(Boolean));
+      return new Set();
+    }
+
     function applySquadratsPayloadFromNav(payload) {
       if (!payload || typeof payload !== 'object') return false;
       const k14 = payload['14'];
       const k17 = payload['17'];
       if (k14 === undefined && k17 === undefined) return false;
-      sqSet14 = k14 !== undefined ? new Set(Array.isArray(k14) ? k14 : []) : null;
-      sqSet17 = k17 !== undefined ? new Set(Array.isArray(k17) ? k17 : []) : null;
+      sqSet14 = k14 !== undefined ? squadratKeysFromPayload(k14) : null;
+      sqSet17 = k17 !== undefined ? squadratKeysFromPayload(k17) : null;
       if (!sqSet14 && !sqSet17) return false;
       sqDataLoaded = true;
       if (sqLayer) map.removeLayer(sqLayer);
